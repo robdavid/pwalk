@@ -12,17 +12,17 @@ type Workpool interface {
 	Run(func())
 }
 
-func Walk(p path.RootedPath, wp Workpool) {
-	dir, err := dir.Read(p)
+func Walk(p path.RootedPath, fn func(path.RootedPath, dir.DirEntry), wp Workpool) {
+	d, err := dir.Read(p)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	} else {
-		for _, entry := range dir.Entries {
-			subp := dir.Path.Append(entry.Name())
-			fmt.Println(subp.Path())
+		for _, entry := range d.Entries {
+			subp := d.Path.Append(entry.Name())
+			fn(subp, entry)
 			if entry.IsDir() {
 				wp.Run(func() {
-					Walk(subp, wp)
+					Walk(subp, fn, wp)
 				})
 			}
 		}

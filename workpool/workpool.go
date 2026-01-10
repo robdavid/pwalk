@@ -2,6 +2,7 @@ package workpool
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 )
@@ -11,7 +12,9 @@ type Workpool struct {
 	input    <-chan func()
 	wg       sync.WaitGroup
 	activity sync.WaitGroup
+	runLock  sync.Mutex
 	Size     int
+	Log      *slog.Logger
 }
 
 func New(size int, queueSize int) *Workpool {
@@ -20,6 +23,10 @@ func New(size int, queueSize int) *Workpool {
 		request: ch,
 		input:   ch,
 		Size:    size,
+		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level:     slog.LevelDebug,
+			AddSource: true,
+		})),
 	}
 	for n := range size {
 		wp.wg.Go(func() { wp.process(n) })
@@ -29,7 +36,7 @@ func New(size int, queueSize int) *Workpool {
 
 func (wp *Workpool) processRecover(n int) {
 	if p := recover(); p != nil {
-		fmt.Fprintf(os.Stderr, "worker %d: %v\n", n, p)
+		wp.Log.Error(fmt.Sprintf("%v", p), "worker", n)
 		wp.wg.Go(func() { wp.process(n) })
 	}
 }
@@ -44,18 +51,37 @@ func (wp *Workpool) runFn(fn func()) {
 func (wp *Workpool) process(n int) {
 	defer wp.processRecover(n)
 	for fn := range wp.input {
+		wp.Log.Debug("Working running work", "worker", n, "waiting", len(wp.input))
 		wp.runFn(fn)
 	}
-	fmt.Printf("worker %d: exit\n", n)
+	wp.Log.Debug("Worker exit", "worker", n)
 }
 
 func (wp *Workpool) Stop() {
+	wp.Log.Debug("Stopping workpool")
 	wp.activity.Wait()
+	wp.Log.Debug("Work finished")
 	close(wp.request)
 	wp.wg.Wait()
+	wp.Log.Debug("Workers exited")
 }
 
 func (wp *Workpool) Run(fn func()) {
-	wp.activity.Add(1)
-	wp.request <- fn
+	runInline := false
+	func() {
+		wp.runLock.Lock()
+		defer wp.runLock.Unlock()
+		wp.Log.Debug("Queuing work", "waiting", len(wp.request))
+		if cap(wp.request) > 0 && len(wp.request) == cap(wp.request) {
+			wp.Log.Debug("Queue full, running inline")
+			runInline = true
+		} else {
+			wp.activity.Add(1)
+			wp.request <- fn
+			wp.Log.Debug("Queued work", "waiting", len(wp.request))
+		}
+	}()
+	if runInline {
+		fn()
+	}
 }
