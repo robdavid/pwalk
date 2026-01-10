@@ -68,19 +68,26 @@ func (wp *Workpool) Stop() {
 
 func (wp *Workpool) Run(fn func()) {
 	runInline := false
-	func() {
-		wp.runLock.Lock()
-		defer wp.runLock.Unlock()
-		wp.Log.Debug("Queuing work", "waiting", len(wp.request))
-		if cap(wp.request) > 0 && len(wp.request) == cap(wp.request) {
-			wp.Log.Debug("Queue full, running inline")
-			runInline = true
-		} else {
-			wp.activity.Add(1)
-			wp.request <- fn
-			wp.Log.Debug("Queued work", "waiting", len(wp.request))
-		}
-	}()
+	if cap(wp.request) == 0 {
+		wp.Log.Debug("Sending work")
+		wp.activity.Add(1)
+		wp.request <- fn
+		wp.Log.Debug("Sent work")
+	} else {
+		func() {
+			wp.runLock.Lock()
+			defer wp.runLock.Unlock()
+			wp.Log.Debug("Queuing work", "waiting", len(wp.request))
+			if len(wp.request) < cap(wp.request) {
+				wp.activity.Add(1)
+				wp.request <- fn
+				wp.Log.Debug("Queued work", "waiting", len(wp.request))
+			} else {
+				wp.Log.Debug("Queue full, running inline")
+				runInline = true
+			}
+		}()
+	}
 	if runInline {
 		fn()
 	}

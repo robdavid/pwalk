@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 
 	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/dir"
@@ -16,26 +17,33 @@ func main() {
 	var quiet bool
 	var usage bool
 	var size uint64
+	var threads int
 	flag.BoolVar(&quiet, "quiet", false, "Doesn't print file names, only totals")
 	flag.BoolVar(&usage, "usage", false, "Total file usage")
+	flag.IntVar(&threads, "threads", runtime.NumCPU(), "Set number of threads")
 	flag.Parse()
 	for _, file := range flag.Args() {
 		count := 0
-		fn := func(p path.RootedPath, ent dir.DirEntry) {
-			if !quiet {
-				fmt.Println(p.Path())
+		fn := func(d dir.Dir, err error) {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s", d.Path.Path())
 			}
-			if usage {
-				if info, err := ent.Info(); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s", p.Path(), err)
-				} else {
-					size += uint64(info.Size())
+			for _, ent := range d.Entries {
+				count++
+				if !quiet {
+					fmt.Println(d.Path.Append(ent.Name()))
+				}
+				if usage {
+					if info, err := ent.Info(); err != nil {
+						fmt.Fprintf(os.Stderr, "%s: %s", d.Path.Append(ent.Name()).Path(), err)
+					} else {
+						size += uint64(info.Size())
+					}
 				}
 			}
-			count++
 		}
 		func() {
-			wp := workpool.New(12, 12)
+			wp := workpool.New(threads, 1+threads/4)
 			defer wp.Stop()
 			wp.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
