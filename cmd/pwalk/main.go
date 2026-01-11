@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"runtime"
 
 	"github.com/robdavid/pwalk"
-	"github.com/robdavid/pwalk/pkgs/dir"
 	"github.com/robdavid/pwalk/pkgs/path"
 	"github.com/robdavid/pwalk/workpool"
 )
@@ -24,18 +24,17 @@ func main() {
 	flag.Parse()
 	for _, file := range flag.Args() {
 		count := 0
-		fn := func(d dir.Dir, err error) {
+		fn := func(fpath path.RootedPath, err error, ent fs.DirEntry) {
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %s", d.Path.Path())
-			}
-			for _, ent := range d.Entries {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
+			} else {
 				count++
 				if !quiet {
-					fmt.Println(d.Path.Append(ent.Name()))
+					fmt.Println(fpath)
 				}
 				if usage {
 					if info, err := ent.Info(); err != nil {
-						fmt.Fprintf(os.Stderr, "%s: %s", d.Path.Append(ent.Name()).Path(), err)
+						fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
 					} else {
 						size += uint64(info.Size())
 					}
@@ -43,13 +42,12 @@ func main() {
 			}
 		}
 		func() {
-			wp := workpool.New(threads, 1+threads/4)
+			wp := workpool.New(threads, threads)
 			defer wp.Stop()
 			wp.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
 			}))
-
-			pwalk.Walk(path.NewAt(file), fn, wp)
+			pwalk.Walk(file, fn, wp)
 		}()
 		fmt.Printf("Total: %d\n", count)
 		if usage {

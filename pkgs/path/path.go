@@ -21,6 +21,10 @@ func (p Path) Path() string {
 	return filepath.Join(p...)
 }
 
+func (p Path) String() string {
+	return p.Path()
+}
+
 func (p Path) FullPath(root string) string {
 	return filepath.Join(root, p.Path())
 }
@@ -44,6 +48,10 @@ func (rp RootedPath) Append(files ...string) RootedPath {
 
 func (rp RootedPath) Path() string {
 	return rp.SubPath.FullPath(rp.Root)
+}
+
+func (rp RootedPath) String() string {
+	return rp.Path()
 }
 
 func (rp RootedPath) AbsPath() (string, error) {

@@ -3,6 +3,8 @@ package dir
 import (
 	"io/fs"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/robdavid/pwalk/pkgs/path"
 )
@@ -41,9 +43,10 @@ func (d DirEntryDir) WithChild(c *Dir) DirEntry {
 type Dir struct {
 	Path    path.RootedPath
 	Entries []DirEntry
+	Error   error
 }
 
-func Read(p path.RootedPath) (Dir, error) {
+func Read(p path.RootedPath) *Dir {
 	ents, err := os.ReadDir(p.Path())
 	dirs := make([]DirEntry, len(ents))
 	for i, ent := range ents {
@@ -53,5 +56,51 @@ func Read(p path.RootedPath) (Dir, error) {
 			dirs[i] = DirEntryFile{ent}
 		}
 	}
-	return Dir{p, dirs}, err
+	return &Dir{p, dirs, err}
+}
+
+func (d *Dir) EntryIndex(name string) int {
+	index, found := slices.BinarySearchFunc(d.Entries, name, func(e DirEntry, target string) int {
+		return strings.Compare(e.Name(), target)
+	})
+	if !found {
+		return -1
+	} else {
+		return index
+	}
+}
+
+type RootDirEntry struct {
+	root path.RootedPath
+	info fs.FileInfo
+}
+
+func NewRootDirEntry(root path.RootedPath) *RootDirEntry {
+	return &RootDirEntry{root: root}
+}
+
+func (r *RootDirEntry) Name() string {
+	return ""
+}
+
+func (r *RootDirEntry) IsDir() bool {
+	return r.Type().IsDir()
+}
+
+func (r *RootDirEntry) Info() (fs.FileInfo, error) {
+	if r.info == nil {
+		var err error
+		r.info, err = os.Stat(r.root.Path())
+		return r.info, err
+	} else {
+		return r.info, nil
+	}
+}
+
+func (r *RootDirEntry) Type() fs.FileMode {
+	if info, err := r.Info(); err != nil {
+		return fs.FileMode(fs.ModeDir | 0o555)
+	} else {
+		return info.Mode()
+	}
 }
