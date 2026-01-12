@@ -33,9 +33,9 @@ func TestRunPool(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		dec()
 	}
-	for range 20 {
+	for range size * 3 {
 		wp.Run(incdec)
 	}
 	wp.Stop()
-	assert.Equal(t, 10, max)
+	assert.Equal(t, size+1, max)
 }
