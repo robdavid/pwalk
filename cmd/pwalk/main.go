@@ -10,7 +10,7 @@ import (
 
 	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/path"
-	"github.com/robdavid/pwalk/workpool"
+	"github.com/robdavid/pwalk/pkgs/workpool"
 )
 
 func main() {
@@ -41,8 +41,8 @@ func main() {
 				}
 			}
 		}
+		wp := workpool.New(threads, threads)
 		func() {
-			wp := workpool.New(threads, threads)
 			defer wp.Stop()
 			wp.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
@@ -50,6 +50,7 @@ func main() {
 			pwalk.Walk(file, fn, wp)
 		}()
 		fmt.Printf("Total: %d\n", count)
+		fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
 		if usage {
 			fmt.Printf("Size:  %d\n", size)
 		}

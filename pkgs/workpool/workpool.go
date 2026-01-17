@@ -9,12 +9,15 @@ import (
 )
 
 type Workpool struct {
-	request  chan<- func()
-	input    <-chan func()
-	wg       sync.WaitGroup
-	activity sync.WaitGroup
-	Size     int
-	Log      *slog.Logger
+	request   chan<- func()
+	input     <-chan func()
+	wg        sync.WaitGroup
+	activity  sync.WaitGroup
+	countLock sync.Mutex
+	Size      int
+	Active    int
+	MaxActive int
+	Log       *slog.Logger
 }
 
 func New(size int, queueSize int) *Workpool {
@@ -48,11 +51,32 @@ func (wp *Workpool) runFn(fn func()) {
 	}
 }
 
+func (wp *Workpool) addCount(n int) {
+	wp.countLock.Lock()
+	defer wp.countLock.Unlock()
+	wp.Active += n
+	if wp.Active > wp.MaxActive {
+		wp.MaxActive = wp.Active
+	} else if wp.Active < 0 {
+		wp.Log.Warn("Correcting bad counter value", "active", wp.Active)
+		wp.Active = 0
+	}
+}
+
+func (wp *Workpool) countRunFn(fn func()) {
+	wp.addCount(1)
+	defer wp.addCount(-1)
+	defer wp.activity.Done()
+	if fn != nil {
+		fn()
+	}
+}
+
 func (wp *Workpool) process(n int) {
 	defer wp.processRecover(n)
 	for fn := range wp.input {
 		wp.Log.Debug("Worker running work", "worker", n, "waiting", len(wp.input))
-		wp.runFn(fn)
+		wp.countRunFn(fn)
 	}
 	wp.Log.Debug("Worker exit", "worker", n)
 }

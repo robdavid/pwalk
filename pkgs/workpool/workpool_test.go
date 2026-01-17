@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/robdavid/pwalk/workpool"
+	"github.com/robdavid/pwalk/pkgs/workpool"
 	"github.com/stretchr/testify/assert"
 )
 
