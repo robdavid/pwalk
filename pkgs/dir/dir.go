@@ -105,6 +105,10 @@ func (r *RootDirEntry) Type() fs.FileMode {
 	}
 }
 
-func NewDirEntryDir(ent fs.DirEntry) DirEntry {
+func MakeDirEntryDir(ent fs.DirEntry) DirEntry {
 	return DirEntryDir{ent, nil}
+}
+
+func MakeDirEntryFile(ent fs.DirEntry) DirEntry {
+	return DirEntryFile{ent}
 }

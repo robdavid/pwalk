@@ -46,9 +46,9 @@ func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *dir.Di
 	dirEntries := make([]dir.DirEntry, len(entries))
 	for i, ent := range entries {
 		if ent.isDir {
-			dirEntries[i] = dir.NewDirEntryDir(ent)
+			dirEntries[i] = dir.MakeDirEntryDir(ent)
 		} else {
-			dirEntries[i] = dir.DirEntryFile{ent}
+			dirEntries[i] = dir.MakeDirEntryFile(ent)
 		}
 	}
 	return &dir.Dir{Path: p, Entries: dirEntries, Error: err}
