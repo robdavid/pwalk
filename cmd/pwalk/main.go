@@ -10,6 +10,7 @@ import (
 	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/path"
 	"github.com/robdavid/pwalk/pkgs/walk"
+	"github.com/robdavid/pwalk/pkgs/workpool"
 )
 
 func main() {
@@ -40,13 +41,11 @@ func main() {
 				}
 			}
 		}
-		var config []pwalk.Config
-		if threads != 0 {
-			config = append(config, walk.ConfigThreads(threads))
-		}
-		pwalk.Walk(file, fn, config...)
+		wp := workpool.New(threads, 0)
+		defer wp.Stop()
+		pwalk.Walk(file, fn, walk.ConfigWorkpool(wp))
 		fmt.Printf("Total: %d\n", count)
-		// fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
+		fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
 		if usage {
 			fmt.Printf("Size:  %d\n", size)
 		}
