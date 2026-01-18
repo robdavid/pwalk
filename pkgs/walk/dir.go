@@ -1,4 +1,4 @@
-package dir
+package walk
 
 import (
 	"io/fs"
@@ -46,8 +46,18 @@ type Dir struct {
 	Error   error
 }
 
-func Read(p path.RootedPath) *Dir {
-	ents, err := os.ReadDir(p.Path())
+type FilterAction int
+
+const (
+	FilterAccept FilterAction = iota
+	FilterSkip
+	FilterSkipDir
+)
+
+type Filter func(os.DirEntry) FilterAction
+
+func Read(config *ConfigData, p path.RootedPath) *Dir {
+	ents, err := config.Filesystem.ReadDir(p)
 	dirs := make([]DirEntry, len(ents))
 	for i, ent := range ents {
 		if ent.IsDir() {

@@ -4,13 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"runtime"
 
 	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/path"
-	"github.com/robdavid/pwalk/pkgs/workpool"
+	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
 func main() {
@@ -41,16 +40,13 @@ func main() {
 				}
 			}
 		}
-		wp := workpool.New(threads, threads)
-		func() {
-			defer wp.Stop()
-			wp.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-				Level: slog.LevelError,
-			}))
-			pwalk.Walk(file, fn, wp)
-		}()
+		var config []pwalk.Config
+		if threads != 0 {
+			config = append(config, walk.ConfigThreads(threads))
+		}
+		pwalk.Walk(file, fn, config...)
 		fmt.Printf("Total: %d\n", count)
-		fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
+		// fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
 		if usage {
 			fmt.Printf("Size:  %d\n", size)
 		}

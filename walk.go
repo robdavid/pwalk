@@ -2,8 +2,9 @@ package pwalk
 
 import (
 	"github.com/robdavid/pwalk/pkgs/assemble"
-	"github.com/robdavid/pwalk/pkgs/dir"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
+	"github.com/robdavid/pwalk/pkgs/workpool"
 )
 
 type Workpool interface {
@@ -11,25 +12,36 @@ type Workpool interface {
 	Wait()
 }
 
-func walk(p path.RootedPath, ass *assemble.Assembly, wp Workpool) {
-	d := dir.Read(p)
+type Config = walk.Config
+
+func runWalk(config *walk.ConfigData, p path.RootedPath, ass *assemble.Assembly) {
+	d := walk.Read(config, p)
 	ass.Sink(d)
 	for _, entry := range d.Entries {
 		if entry.IsDir() {
-			wp.Run(func() {
-				walk(d.Path.Append(entry.Name()), ass, wp)
+			config.Workpool.Run(func() {
+				runWalk(config, d.Path.Append(entry.Name()), ass)
 			})
 		}
 	}
 }
 
-func Walk(root string, fn assemble.WalkFn, wp Workpool) {
+func Walk(root string, fn assemble.WalkFn, config ...Config) {
+	configData := walk.NewConfigData()
+	for _, c := range config {
+		c(configData)
+	}
+	if configData.Workpool == nil {
+		wp := workpool.New(configData.Threads, 0)
+		defer wp.Stop()
+		configData.Workpool = wp
+	}
 	ass := assemble.New(fn)
 	defer ass.Close()
-	wp.Run(func() {
-		walk(path.NewAt(root), ass, wp)
+	configData.Workpool.Run(func() {
+		runWalk(configData, path.NewAt(root), ass)
 	})
 	//time.Sleep(1 * time.Second)
-	wp.Wait()
+	configData.Workpool.Wait()
 	ass.Wait()
 }

@@ -9,8 +9,8 @@ import (
 
 	"log/slog"
 
-	"github.com/robdavid/pwalk/pkgs/dir"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,26 +38,26 @@ func (t testFileInfo) ModTime() time.Time { return time.Time{} }
 func (t testFileInfo) IsDir() bool        { return t.isDir }
 func (t testFileInfo) Sys() any           { return nil }
 
-func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *dir.Dir {
+func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *walk.Dir {
 	// Sort entries by name for binary search
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
 	})
-	dirEntries := make([]dir.DirEntry, len(entries))
+	dirEntries := make([]walk.DirEntry, len(entries))
 	for i, ent := range entries {
 		if ent.isDir {
-			dirEntries[i] = dir.MakeDirEntryDir(ent)
+			dirEntries[i] = walk.MakeDirEntryDir(ent)
 		} else {
-			dirEntries[i] = dir.MakeDirEntryFile(ent)
+			dirEntries[i] = walk.MakeDirEntryFile(ent)
 		}
 	}
-	return &dir.Dir{Path: p, Entries: dirEntries, Error: err}
+	return &walk.Dir{Path: p, Entries: dirEntries, Error: err}
 }
 
 // TestAddAndNextSimple tests basic addition and traversal of a simple tree.
 func TestAddAndNextSimple(t *testing.T) {
 	as := &Assembly{
-		stream: make(chan *dir.Dir, 10), // buffer to avoid blocking
+		stream: make(chan *walk.Dir, 10), // buffer to avoid blocking
 		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 
@@ -102,7 +102,7 @@ func TestAddAndNextSimple(t *testing.T) {
 // verifying that Next blocks when child directories aren't available yet, and resumes correctly after they're added.
 func TestAddOutOfOrder(t *testing.T) {
 	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
+		stream: make(chan *walk.Dir, 10),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 
@@ -201,7 +201,7 @@ func TestAddOutOfOrder(t *testing.T) {
 // TestNextTraversalOrder ensures depth-first traversal order across multiple subdirectories.
 func TestNextTraversalOrder(t *testing.T) {
 	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
+		stream: make(chan *walk.Dir, 10),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 
@@ -264,7 +264,7 @@ func TestNextTraversalOrder(t *testing.T) {
 // TestNextWithErrors verifies error handling for directories with read errors.
 func TestNextWithErrors(t *testing.T) {
 	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
+		stream: make(chan *walk.Dir, 10),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 

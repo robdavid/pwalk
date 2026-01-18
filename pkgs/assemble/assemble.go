@@ -6,15 +6,15 @@ import (
 	"os"
 	"sync"
 
-	"github.com/robdavid/pwalk/pkgs/dir"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
 type WalkFn = func(path.RootedPath, error, fs.DirEntry)
 type Assembly struct {
-	root      *dir.Dir
+	root      *walk.Dir
 	readState Location
-	stream    chan *dir.Dir
+	stream    chan *walk.Dir
 	wg        sync.WaitGroup
 	WalkFn    WalkFn
 	Log       *slog.Logger
@@ -27,18 +27,18 @@ func New(walkFn WalkFn) *Assembly {
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
-		stream: make(chan *dir.Dir),
+		stream: make(chan *walk.Dir),
 	}
 	as.wg.Add(1)
 	go as.process()
 	return as
 }
 
-func (as *Assembly) Add(d *dir.Dir) {
+func (as *Assembly) Add(d *walk.Dir) {
 	if len(d.Path.SubPath) == 0 {
 		as.root = d
 	} else {
-		var parent *dir.Dir
+		var parent *walk.Dir
 		var index int
 		next := as.root
 		for _, p := range d.Path.SubPath {
@@ -51,10 +51,10 @@ func (as *Assembly) Add(d *dir.Dir) {
 	}
 }
 
-func (as *Assembly) Next() (fnext path.RootedPath, next dir.DirEntry, direrr error, more bool, blocked bool) {
+func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
 		as.readState = as.readState.Push(CoOrd{Dir: as.root, Index: 0})
-		next = dir.DirEntryDir{DirEntry: dir.NewRootDirEntry(as.root.Path)}
+		next = walk.DirEntryDir{DirEntry: walk.NewRootDirEntry(as.root.Path)}
 		fnext = as.root.Path
 		direrr = as.root.Error
 		more = true
@@ -121,6 +121,6 @@ func (as *Assembly) Close() {
 	close(as.stream)
 }
 
-func (as *Assembly) Sink(d *dir.Dir) {
+func (as *Assembly) Sink(d *walk.Dir) {
 	as.stream <- d
 }
