@@ -1,6 +1,11 @@
 package walk
 
-import "runtime"
+import (
+	"os"
+	"runtime"
+
+	"github.com/robdavid/pwalk/pkgs/path"
+)
 
 type Workpool interface {
 	Run(fn func())
@@ -25,7 +30,17 @@ type Config func(*ConfigData)
 
 func ConfigFilter(f Filter) func(*ConfigData) {
 	return func(config *ConfigData) {
-		config.Filter = f
+		if prev := config.Filter; prev == nil {
+			config.Filter = f
+		} else {
+			config.Filter = func(p path.RootedPath, ent os.DirEntry, err error) FilterAction {
+				if skip := prev(p, ent, err); skip == FilterAccept {
+					return f(p, ent, err)
+				} else {
+					return skip
+				}
+			}
+		}
 	}
 }
 

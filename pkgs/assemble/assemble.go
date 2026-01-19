@@ -85,6 +85,10 @@ func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr er
 					as.Log.Debug("Waiting for directory", "path", fnext)
 				} else {
 					direrr = child.Error
+					if direrr == walk.ErrSkip {
+						current.Index++
+						continue
+					}
 					as.readState = as.readState.Push(CoOrd{child, 0})
 					as.Log.Debug("Found directory", "path", fnext)
 				}

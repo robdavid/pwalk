@@ -1,6 +1,7 @@
 package walk
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"slices"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/robdavid/pwalk/pkgs/path"
 )
+
+var ErrSkip = errors.New("entry skipped")
 
 type DirEntry interface {
 	fs.DirEntry
@@ -54,16 +57,36 @@ const (
 	FilterSkipDir
 )
 
-type Filter func(os.DirEntry) FilterAction
+type Filter func(path.RootedPath, os.DirEntry, error) FilterAction
 
 func Read(config *ConfigData, p path.RootedPath) *Dir {
 	ents, err := config.Filesystem.ReadDir(p)
-	dirs := make([]DirEntry, len(ents))
-	for i, ent := range ents {
+	filter := config.Filter
+	if err != nil && filter != nil {
+		switch filter(p, NewAnyDirEntry(p), err) {
+		case FilterSkipDir:
+			return &Dir{p, []DirEntry{}, err}
+		case FilterSkip:
+			return &Dir{p, []DirEntry{}, ErrSkip}
+		}
+	}
+	dirs := make([]DirEntry, 0, len(ents))
+	for _, ent := range ents {
+		if filter != nil {
+			p.Push(ent.Name())
+			skip := filter(p, ent, nil)
+			p.Pop(1)
+			switch skip {
+			case FilterSkipDir:
+				return &Dir{p, []DirEntry{}, err}
+			case FilterSkip:
+				continue
+			}
+		}
 		if ent.IsDir() {
-			dirs[i] = DirEntryDir{ent, nil}
+			dirs = append(dirs, DirEntryDir{ent, nil})
 		} else {
-			dirs[i] = DirEntryFile{ent}
+			dirs = append(dirs, DirEntryFile{ent})
 		}
 	}
 	return &Dir{p, dirs, err}
@@ -121,4 +144,20 @@ func MakeDirEntryDir(ent fs.DirEntry) DirEntry {
 
 func MakeDirEntryFile(ent fs.DirEntry) DirEntry {
 	return DirEntryFile{ent}
+}
+
+type AnyDirEntry struct {
+	RootDirEntry
+}
+
+func NewAnyDirEntry(p path.RootedPath) *AnyDirEntry {
+	return &AnyDirEntry{RootDirEntry: RootDirEntry{root: p}}
+}
+
+func (r *AnyDirEntry) Name() string {
+	if len(r.root.SubPath) == 0 {
+		return ""
+	} else {
+		return r.root.SubPath[0]
+	}
 }

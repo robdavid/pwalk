@@ -1,6 +1,8 @@
 package path
 
-import "path/filepath"
+import (
+	"path/filepath"
+)
 
 type Path []string
 
@@ -15,6 +17,18 @@ func (p Path) Append(files ...string) Path {
 	copy(cloned, p)
 	copy(cloned[len(p):], files)
 	return Path(cloned)
+}
+
+func (p *Path) Push(files ...string) {
+	*p = append(*p, files...)
+}
+
+func (p *Path) Pop(n int) {
+	if n > len(*p) {
+		*p = (*p)[:0]
+	} else {
+		*p = (*p)[:len(*p)-n]
+	}
 }
 
 func (p Path) Path() string {
@@ -44,6 +58,14 @@ func NewAt(root string, subdirs ...string) RootedPath {
 
 func (rp RootedPath) Append(files ...string) RootedPath {
 	return RootedPath{rp.Root, rp.SubPath.Append(files...)}
+}
+
+func (rp *RootedPath) Push(files ...string) {
+	rp.SubPath.Push(files...)
+}
+
+func (rp *RootedPath) Pop(n int) {
+	rp.SubPath.Pop(n)
 }
 
 func (rp RootedPath) Path() string {
