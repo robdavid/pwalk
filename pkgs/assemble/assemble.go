@@ -16,17 +16,19 @@ type Assembly struct {
 	readState Location
 	stream    chan *walk.Dir
 	wg        sync.WaitGroup
+	config    *walk.ConfigData
 	WalkFn    WalkFn
 	Log       *slog.Logger
 }
 
-func New(walkFn WalkFn) *Assembly {
+func New(config *walk.ConfigData, walkFn WalkFn) *Assembly {
 	as := &Assembly{
 		WalkFn: walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
+		config: config,
 		stream: make(chan *walk.Dir),
 	}
 	as.wg.Add(1)
@@ -54,7 +56,7 @@ func (as *Assembly) Add(d *walk.Dir) {
 func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
 		as.readState = as.readState.Push(CoOrd{Dir: as.root, Index: 0})
-		next = walk.DirEntryDir{DirEntry: walk.NewRootDirEntry(as.root.Path)}
+		next = walk.DirEntryDir{DirEntry: walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)}
 		fnext = as.root.Path
 		direrr = as.root.Error
 		more = true

@@ -9,7 +9,7 @@ import (
 
 type Filesystem interface {
 	ReadDir(path.RootedPath) ([]fs.DirEntry, error)
-	Stat(path.RootedPath) (fs.FileInfo, error)
+	Lstat(path.RootedPath) (fs.FileInfo, error)
 }
 
 type RealFilesystem struct{}
@@ -18,6 +18,6 @@ func (RealFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
 	return os.ReadDir(p.Path())
 }
 
-func (RealFilesystem) Stat(p path.RootedPath) (fs.FileInfo, error) {
-	return os.Stat(p.Path())
+func (RealFilesystem) Lstat(p path.RootedPath) (fs.FileInfo, error) {
+	return os.Lstat(p.Path())
 }

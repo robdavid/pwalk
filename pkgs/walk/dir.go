@@ -104,12 +104,13 @@ func (d *Dir) EntryIndex(name string) int {
 }
 
 type RootDirEntry struct {
-	root path.RootedPath
-	info fs.FileInfo
+	filesystem Filesystem
+	root       path.RootedPath
+	info       fs.FileInfo
 }
 
-func NewRootDirEntry(root path.RootedPath) *RootDirEntry {
-	return &RootDirEntry{root: root}
+func NewRootDirEntry(fs Filesystem, root path.RootedPath) *RootDirEntry {
+	return &RootDirEntry{filesystem: fs, root: root}
 }
 
 func (r *RootDirEntry) Name() string {
@@ -123,7 +124,7 @@ func (r *RootDirEntry) IsDir() bool {
 func (r *RootDirEntry) Info() (fs.FileInfo, error) {
 	if r.info == nil {
 		var err error
-		r.info, err = os.Stat(r.root.Path())
+		r.info, err = r.filesystem.Lstat(r.root)
 		return r.info, err
 	} else {
 		return r.info, nil

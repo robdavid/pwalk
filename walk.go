@@ -36,7 +36,7 @@ func Walk(root string, fn assemble.WalkFn, config ...Config) {
 		defer wp.Stop()
 		configData.Workpool = wp
 	}
-	ass := assemble.New(fn)
+	ass := assemble.New(configData, fn)
 	defer ass.Close()
 	configData.Workpool.Run(func() {
 		runWalk(configData, path.NewAt(root), ass)
