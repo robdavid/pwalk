@@ -55,3 +55,9 @@ func ConfigThreads(n int) func(*ConfigData) {
 		config.Threads = n
 	}
 }
+
+func ConfigFilesystem(fs Filesystem) func(*ConfigData) {
+	return func(config *ConfigData) {
+		config.Filesystem = fs
+	}
+}

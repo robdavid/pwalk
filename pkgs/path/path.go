@@ -79,3 +79,11 @@ func (rp RootedPath) String() string {
 func (rp RootedPath) AbsPath() (string, error) {
 	return rp.SubPath.AbsPath(rp.Root)
 }
+
+func (rp RootedPath) Sub() RootedPath {
+	if len(rp.SubPath) > 0 {
+		return RootedPath{Root: filepath.Join(rp.Root, rp.SubPath[0]), SubPath: rp.SubPath[1:]}
+	} else {
+		return rp
+	}
+}

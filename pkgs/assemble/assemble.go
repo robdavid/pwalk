@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -46,6 +47,9 @@ func (as *Assembly) Add(d *walk.Dir) {
 		for _, p := range d.Path.SubPath {
 			parent = next
 			index = parent.EntryIndex(p)
+			if index < 0 {
+				panic(fmt.Errorf("Cannot find %s in %s", p, parent.Path))
+			}
 			next = parent.Entries[index].Child()
 		}
 		parent.Entries[index] = parent.Entries[index].WithChild(d)
