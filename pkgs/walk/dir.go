@@ -43,27 +43,40 @@ func (d DirEntryDir) WithChild(c *Dir) DirEntry {
 	return DirEntryDir{d.DirEntry, c}
 }
 
+// Dir contains the results from reading a directory, including
+// the directory path, the entries read and any error encountered.
 type Dir struct {
 	Path    path.RootedPath
 	Entries []DirEntry
 	Error   error
 }
 
+// FilterAction is returned as the result of the [Filter] function.
+// Possible values are [FilterAccept], [FilterSkip] or [FilterSkipDir]
 type FilterAction int
 
 const (
+	// FilterAccept indicates the file entry is to be included.
 	FilterAccept FilterAction = iota
+	// FilterSkip indicates the file entry is to be excluded, whether it is a
+	// file or a directory.
 	FilterSkip
+	// FilterSkipDir indicates a directory is to be a excluded. If the entry is
+	// a directory, that directory is excluded. Otherwise the parent directory
+	// is returned as empty.
 	FilterSkipDir
 )
 
-type Filter func(path.RootedPath, os.DirEntry, error) FilterAction
+type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
 
+// Read reads the directory at p, and returns a pointer to a [Dir] object
 func Read(config *ConfigData, p path.RootedPath) *Dir {
 	ents, err := config.Filesystem.ReadDir(p)
 	filter := config.Filter
-	if err != nil && filter != nil {
-		switch filter(p, NewAnyDirEntry(p), err) {
+	if filter != nil {
+		var action FilterAction
+		action, err = filter(p, NewAnyDirEntry(p), err)
+		switch action {
 		case FilterSkipDir:
 			return &Dir{p, []DirEntry{}, err}
 		case FilterSkip:
@@ -73,10 +86,11 @@ func Read(config *ConfigData, p path.RootedPath) *Dir {
 	dirs := make([]DirEntry, 0, len(ents))
 	for _, ent := range ents {
 		if filter != nil {
+			var action FilterAction
 			p.Push(ent.Name())
-			skip := filter(p, ent, nil)
+			action, err := filter(p, ent, nil)
 			p.Pop(1)
-			switch skip {
+			switch action {
 			case FilterSkipDir:
 				return &Dir{p, []DirEntry{}, err}
 			case FilterSkip:
@@ -162,3 +176,15 @@ func (r *AnyDirEntry) Name() string {
 		return r.root.SubPath[0]
 	}
 }
+
+// func FilterInternalDirLinks(p path.RootedPath, ent os.DirEntry, err error) (FilterAction,error) {
+// 	if ent.IsDir() {
+// 		if info, err := ent.Info(); err == nil {
+// 			if info.Mode()&fs.ModeSymlink != 0 {
+// 				target, err = os.Readlink(p.String())
+// 				filepath.HasPrefix()
+// 			}
+// 		}
+
+// 	}
+// }

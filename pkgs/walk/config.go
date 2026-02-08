@@ -33,11 +33,11 @@ func ConfigFilter(f Filter) func(*ConfigData) {
 		if prev := config.Filter; prev == nil {
 			config.Filter = f
 		} else {
-			config.Filter = func(p path.RootedPath, ent os.DirEntry, err error) FilterAction {
-				if skip := prev(p, ent, err); skip == FilterAccept {
+			config.Filter = func(p path.RootedPath, ent os.DirEntry, err error) (FilterAction, error) {
+				if skip, err := prev(p, ent, err); skip == FilterAccept {
 					return f(p, ent, err)
 				} else {
-					return skip
+					return skip, err
 				}
 			}
 		}

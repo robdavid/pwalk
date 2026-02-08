@@ -13,6 +13,7 @@ type Workpool interface {
 }
 
 type Config = walk.Config
+type WalkFn = assemble.WalkFn
 
 func runWalk(config *walk.ConfigData, p path.RootedPath, ass *assemble.Assembly) {
 	d := walk.Read(config, p)
@@ -26,7 +27,7 @@ func runWalk(config *walk.ConfigData, p path.RootedPath, ass *assemble.Assembly)
 	}
 }
 
-func Walk(root string, fn assemble.WalkFn, config ...Config) {
+func Walk(root string, fn WalkFn, config ...Config) {
 	configData := walk.NewConfigData()
 	for _, c := range config {
 		c(configData)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/robdavid/pwalk/pkgs/path"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
@@ -88,4 +89,10 @@ func TestRootedAbs(t *testing.T) {
 	abs, err := p.AbsPath()
 	assert.NoError(err)
 	assert.Equal("/var/lib/dbus/machine-id", abs)
+}
+
+func TestIsCaseInsensitive(t *testing.T) {
+	ins, err := path.IsCaseInsensitive("/tmp")
+	require.NoError(t, err)
+	assert.False(t, ins)
 }
