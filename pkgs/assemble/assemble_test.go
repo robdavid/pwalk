@@ -2,6 +2,7 @@ package assemble_test
 
 import (
 	"io/fs"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -89,7 +90,12 @@ func TestAddAndNextSimple(t *testing.T) {
 		results = append(results, fnext.String())
 	}
 
-	expected := []string{rootPathStr, rootPathStr + "\\file1.txt", rootPathStr + "\\subdir", rootPathStr + "\\subdir\\file2.txt"}
+	expected := []string{
+		rootPathStr,
+		filepath.Join(rootPathStr, "file1.txt"),
+		filepath.Join(rootPathStr, "subdir"),
+		filepath.Join(rootPathStr, "subdir", "file2.txt"),
+	}
 	assert.Equal(t, expected, results)
 }
 
@@ -187,9 +193,12 @@ func TestAddOutOfOrder(t *testing.T) {
 	assert.Greater(t, blockedCount, 0)
 
 	expected := []string{
-		rootPathStr, rootPathStr + "\\a", rootPathStr + "\\a\\b",
-		rootPathStr + "\\a\\b\\file3.txt", rootPathStr + "\\a\\file_a.txt",
-		rootPathStr + "\\file1.txt",
+		rootPathStr,
+		filepath.Join(rootPathStr, "a"),
+		filepath.Join(rootPathStr, "a", "b"),
+		filepath.Join(rootPathStr, "a", "b", "file3.txt"),
+		filepath.Join(rootPathStr, "a", "file_a.txt"),
+		filepath.Join(rootPathStr, "file1.txt"),
 	}
 	assert.Equal(t, expected, results)
 }
@@ -243,13 +252,13 @@ func TestNextTraversalOrder(t *testing.T) {
 
 	expected := []string{
 		rootPathStr,
-		rootPathStr + "\\dir1",
-		rootPathStr + "\\dir1\\file2.txt",
-		rootPathStr + "\\dir1\\subdir",
-		rootPathStr + "\\dir1\\subdir\\file3.txt",
-		rootPathStr + "\\dir2",
-		rootPathStr + "\\dir2\\file4.txt",
-		rootPathStr + "\\file1.txt",
+		filepath.Join(rootPathStr, "dir1"),
+		filepath.Join(rootPathStr, "dir1", "file2.txt"),
+		filepath.Join(rootPathStr, "dir1", "subdir"),
+		filepath.Join(rootPathStr, "dir1", "subdir", "file3.txt"),
+		filepath.Join(rootPathStr, "dir2"),
+		filepath.Join(rootPathStr, "dir2", "file4.txt"),
+		filepath.Join(rootPathStr, "file1.txt"),
 	}
 	assert.Equal(t, expected, results)
 }
@@ -291,9 +300,9 @@ func TestNextWithErrors(t *testing.T) {
 	// Check that baddir has error
 	assert.Equal(t, rootPathStr, results[0].path)
 	assert.False(t, results[0].isErr)
-	assert.Equal(t, rootPathStr+"\\baddir", results[1].path)
+	assert.Equal(t, filepath.Join(rootPathStr, "baddir"), results[1].path)
 	assert.True(t, results[1].isErr)
-	assert.Equal(t, rootPathStr+"\\goodfile.txt", results[2].path)
+	assert.Equal(t, filepath.Join(rootPathStr, "goodfile.txt"), results[2].path)
 	assert.False(t, results[2].isErr)
 }
 
