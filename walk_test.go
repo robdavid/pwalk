@@ -241,7 +241,45 @@ func TestParTree(t *testing.T) {
 		}
 	}, walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree))
 	wp.Stop()
+	fmt.Println("Count:", count)
 	end := time.Now()
+	assert.Greater(t, wp.MaxActive, 1)
+	sequentialTime := readDelay * time.Duration(count)
+	assert.Less(t, end.Sub(start), sequentialTime)
+}
+
+func TestParTreeNoSymlinks(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build: []buildInfo{
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | 0777, repeat: 1},
+			{mode: os.ModeDir | os.ModeSymlink, repeat: 2},
+		},
+	})
+	wp := workpool.New(12, 0)
+	var size int64
+	var count int
+	prevPath := ""
+	start := time.Now()
+	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+		require.NoError(t, err)
+		pthString := pth.String()
+		if prevPath != "" {
+			assert.Greater(t, pthString, prevPath)
+		}
+		prevPath = pthString
+		if info, err := dirent.Info(); err == nil {
+			size += info.Size()
+			count++
+		}
+	}, walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree), walk.ConfigFilter(walk.FilterDirSymLinks))
+	wp.Stop()
+	end := time.Now()
+	fmt.Println("Count:", count)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)

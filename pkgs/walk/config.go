@@ -30,6 +30,9 @@ type Config func(*ConfigData)
 
 func ConfigFilter(f Filter) func(*ConfigData) {
 	return func(config *ConfigData) {
+		if f == nil {
+			return
+		}
 		if prev := config.Filter; prev == nil {
 			config.Filter = f
 		} else {

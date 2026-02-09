@@ -75,7 +75,7 @@ func Read(config *ConfigData, p path.RootedPath) *Dir {
 	filter := config.Filter
 	if filter != nil {
 		var action FilterAction
-		action, err = filter(p, NewAnyDirEntry(p), err)
+		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err)
 		switch action {
 		case FilterSkipDir:
 			return &Dir{p, []DirEntry{}, err}
@@ -87,9 +87,9 @@ func Read(config *ConfigData, p path.RootedPath) *Dir {
 	for _, ent := range ents {
 		if filter != nil {
 			var action FilterAction
-			p.Push(ent.Name())
-			action, err := filter(p, ent, nil)
-			p.Pop(1)
+			//p.Push(ent.Name())
+			action, err := filter(p.Append(ent.Name()), ent, nil)
+			//p.Pop(1)
 			switch action {
 			case FilterSkipDir:
 				return &Dir{p, []DirEntry{}, err}
@@ -165,8 +165,8 @@ type AnyDirEntry struct {
 	RootDirEntry
 }
 
-func NewAnyDirEntry(p path.RootedPath) *AnyDirEntry {
-	return &AnyDirEntry{RootDirEntry: RootDirEntry{root: p}}
+func NewAnyDirEntry(fs Filesystem, p path.RootedPath) *AnyDirEntry {
+	return &AnyDirEntry{RootDirEntry: RootDirEntry{filesystem: fs, root: p}}
 }
 
 func (r *AnyDirEntry) Name() string {
@@ -177,14 +177,15 @@ func (r *AnyDirEntry) Name() string {
 	}
 }
 
-// func FilterInternalDirLinks(p path.RootedPath, ent os.DirEntry, err error) (FilterAction,error) {
-// 	if ent.IsDir() {
-// 		if info, err := ent.Info(); err == nil {
-// 			if info.Mode()&fs.ModeSymlink != 0 {
-// 				target, err = os.Readlink(p.String())
-// 				filepath.HasPrefix()
-// 			}
-// 		}
-
-// 	}
-// }
+// FilterDirSymLinks is a filter function that can be used to skip symbolic links to directories.
+// If the entry is a directory and a symbolic link, it will be skipped.
+func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (FilterAction, error) {
+	if ent.IsDir() {
+		if info, err := ent.Info(); err == nil {
+			if info.Mode()&fs.ModeSymlink != 0 {
+				return FilterSkip, errIn
+			}
+		}
+	}
+	return FilterAccept, errIn
+}
