@@ -1,3 +1,5 @@
+//go:build unix
+
 package path_test
 
 import (
