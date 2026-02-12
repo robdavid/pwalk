@@ -73,7 +73,7 @@ type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
 func Read(config *ConfigData, p path.RootedPath) *Dir {
 	ents, err := config.Filesystem.ReadDir(p)
 	filter := config.Filter
-	if filter != nil {
+	if filter != nil && err != nil {
 		var action FilterAction
 		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err)
 		switch action {
@@ -87,9 +87,7 @@ func Read(config *ConfigData, p path.RootedPath) *Dir {
 	for _, ent := range ents {
 		if filter != nil {
 			var action FilterAction
-			//p.Push(ent.Name())
 			action, err := filter(p.Append(ent.Name()), ent, nil)
-			//p.Pop(1)
 			switch action {
 			case FilterSkipDir:
 				return &Dir{p, []DirEntry{}, err}
@@ -170,10 +168,10 @@ func NewAnyDirEntry(fs Filesystem, p path.RootedPath) *AnyDirEntry {
 }
 
 func (r *AnyDirEntry) Name() string {
-	if len(r.root.SubPath) == 0 {
+	if r.root.IsRoot() {
 		return ""
 	} else {
-		return r.root.SubPath[0]
+		return r.root.Top()
 	}
 }
 

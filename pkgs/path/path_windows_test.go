@@ -33,8 +33,6 @@ func TestRootedAppend(t *testing.T) {
 	p1 := path.NewAt("r", "a", "b")
 	p2 := p1.Append("c", "d")
 	assert.Equal("r\\a\\b\\c\\d", p2.Path())
-	p1.SubPath[0] = "x"
-	assert.Equal("r\\a\\b\\c\\d", p2.Path())
 }
 
 func TestRootedAbs(t *testing.T) {

@@ -1,9 +1,13 @@
 package path
 
 import (
+	"iter"
 	"path/filepath"
+	"slices"
 )
 
+// Path is a string slice representing a file path split into directory elements
+// plus a final file or directory element. An empty slice represents a path root.
 type Path []string
 
 func New(files ...string) Path {
@@ -59,9 +63,11 @@ func (p Path) HasPrefix(prefix Path) bool {
 	return true
 }
 
+// A RootedPath is a [Path] which is found relative to a location in
+// the file system represented as a normal path string.
 type RootedPath struct {
-	Root    string
-	SubPath Path
+	root    string
+	subPath Path
 }
 
 func NewAt(root string, subdirs ...string) RootedPath {
@@ -69,19 +75,11 @@ func NewAt(root string, subdirs ...string) RootedPath {
 }
 
 func (rp RootedPath) Append(files ...string) RootedPath {
-	return RootedPath{rp.Root, rp.SubPath.Append(files...)}
-}
-
-func (rp *RootedPath) Push(files ...string) {
-	rp.SubPath.Push(files...)
-}
-
-func (rp *RootedPath) Pop(n int) {
-	rp.SubPath.Pop(n)
+	return RootedPath{rp.root, rp.subPath.Append(files...)}
 }
 
 func (rp RootedPath) Path() string {
-	return rp.SubPath.FullPath(rp.Root)
+	return rp.subPath.FullPath(rp.root)
 }
 
 func (rp RootedPath) String() string {
@@ -89,13 +87,30 @@ func (rp RootedPath) String() string {
 }
 
 func (rp RootedPath) AbsFile() (string, error) {
-	return rp.SubPath.AbsFile(rp.Root)
+	return rp.subPath.AbsFile(rp.root)
 }
 
+// Sub returns a RootedPath rooted at the first path subdirectory.
 func (rp RootedPath) Sub() RootedPath {
-	if len(rp.SubPath) > 0 {
-		return RootedPath{Root: filepath.Join(rp.Root, rp.SubPath[0]), SubPath: rp.SubPath[1:]}
+	if len(rp.subPath) > 0 {
+		return RootedPath{root: filepath.Join(rp.root, rp.subPath[0]), subPath: rp.subPath[1:]}
 	} else {
 		return rp
 	}
+}
+
+func (rp RootedPath) Len() int {
+	return len(rp.subPath)
+}
+
+func (rp RootedPath) IsRoot() bool {
+	return len(rp.subPath) == 0
+}
+
+func (rp RootedPath) SubPaths() iter.Seq[string] {
+	return slices.Values(rp.subPath)
+}
+
+func (rp RootedPath) Top() string {
+	return rp.subPath[0]
 }

@@ -38,13 +38,13 @@ func New(config *walk.ConfigData, walkFn WalkFn) *Assembly {
 }
 
 func (as *Assembly) Add(d *walk.Dir) {
-	if len(d.Path.SubPath) == 0 {
+	if d.Path.IsRoot() {
 		as.root = d
 	} else {
 		var parent *walk.Dir
 		var index int
 		next := as.root
-		for _, p := range d.Path.SubPath {
+		for p := range d.Path.SubPaths() {
 			parent = next
 			index = parent.EntryIndex(p)
 			if index < 0 {

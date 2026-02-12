@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ func (mf MockFilesystem) Get(name string) *MockDirEntry {
 }
 
 func (mf MockFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
-	if len(p.SubPath) == 0 {
+	if p.IsRoot() {
 		entries := make([]fs.DirEntry, len(mf.root))
 		for i, ent := range mf.root {
 			entries[i] = ent
@@ -104,7 +105,7 @@ func (mf MockFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
 		slices.SortFunc(entries, func(e1, e2 fs.DirEntry) int { return strings.Compare(e1.Name(), e2.Name()) })
 		return entries, nil
 	} else {
-		sub := mf.Get(p.SubPath[0])
+		sub := mf.Get(p.Top())
 		if sub == nil {
 			return nil, fs.ErrNotExist
 		}
@@ -113,18 +114,18 @@ func (mf MockFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
 }
 
 func (mf MockFilesystem) Lstat(p path.RootedPath) (fs.FileInfo, error) {
-	switch len(p.SubPath) {
+	switch p.Len() {
 	case 0:
 		return MockEntryInfo{&MockDirEntry{mode: os.ModeDir}}, nil
 	case 1:
-		ent := mf.Get(p.SubPath[0])
+		ent := mf.Get(p.Top())
 		if ent == nil {
 			return nil, fs.ErrNotExist
 		} else {
 			return MockEntryInfo{ent}, nil
 		}
 	default:
-		ent := mf.Get(p.SubPath[0])
+		ent := mf.Get(p.Top())
 		if !ent.IsDir() {
 			return nil, fs.ErrNotExist
 		} else {
@@ -182,8 +183,9 @@ func (b *buildState) nextFilemode() fs.FileMode {
 	}
 }
 
-func (b *buildState) makeTree() MockFilesystem {
+func (b *buildState) makeTree() (MockFilesystem, int) {
 	children := make([]*MockDirEntry, b.config.breadth)
+	total := len(children)
 	for i := range children {
 		name := fmt.Sprintf("child-%d", i)
 		mode := b.nextFilemode()
@@ -195,29 +197,32 @@ func (b *buildState) makeTree() MockFilesystem {
 			readDelay: b.config.readDelay,
 		}
 		if mode.IsDir() {
+			var subtotal int
 			subB := buildState{
 				config:  b.config,
 				infopos: 0,
 				depth:   b.depth + 1,
 			}
-			children[i].children = subB.makeTree()
+			children[i].children, subtotal = subB.makeTree()
+			total += subtotal
 		}
 	}
-	return MockFilesystem{root: children}
+	return MockFilesystem{root: children}, total
 }
 
-func BuildTree(config buildConfig) MockFilesystem {
+func BuildTree(config buildConfig) (MockFilesystem, int) {
 	b := buildState{
 		config:  &config,
 		depth:   0,
 		infopos: 0,
 	}
-	return b.makeTree()
+	fs, entries := b.makeTree()
+	return fs, entries + 1
 }
 
 func TestParTree(t *testing.T) {
 	readDelay := time.Millisecond * 10
-	tree := BuildTree(buildConfig{
+	tree, entries := BuildTree(buildConfig{
 		breadth:   15,
 		depth:     5,
 		readDelay: readDelay,
@@ -242,44 +247,63 @@ func TestParTree(t *testing.T) {
 	}, walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree))
 	wp.Stop()
 	fmt.Println("Count:", count)
+	assert.Equal(t, entries, count)
 	end := time.Now()
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
+func filterCount(t *testing.T, counter *atomic.Int32) walk.Filter {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
+		if err != nil {
+			return walk.FilterSkipDir, err
+		}
+		counter.Add(1)
+		return walk.FilterAccept, nil
+	}
+}
+
 func TestParTreeNoSymlinks(t *testing.T) {
 	readDelay := time.Millisecond * 10
-	tree := BuildTree(buildConfig{
+	tree, max := BuildTree(buildConfig{
 		breadth:   15,
 		depth:     5,
 		readDelay: readDelay,
 		build: []buildInfo{
 			{mode: 0777, repeat: 3},
 			{mode: os.ModeDir | 0777, repeat: 1},
-			{mode: os.ModeDir | os.ModeSymlink, repeat: 2},
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | os.ModeSymlink, repeat: 1},
 		},
 	})
 	wp := workpool.New(12, 0)
 	var size int64
 	var count int
+	var entries atomic.Int32
 	prevPath := ""
 	start := time.Now()
 	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
 		require.NoError(t, err)
 		pthString := pth.String()
 		if prevPath != "" {
-			assert.Greater(t, pthString, prevPath)
+			require.Greater(t, pthString, prevPath)
 		}
 		prevPath = pthString
 		if info, err := dirent.Info(); err == nil {
 			size += info.Size()
 			count++
 		}
-	}, walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree), walk.ConfigFilter(walk.FilterDirSymLinks))
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(walk.FilterDirSymLinks),
+		walk.ConfigFilter(filterCount(t, &entries)),
+	)
 	wp.Stop()
 	end := time.Now()
-	fmt.Println("Count:", count)
+	assert.Less(t, count, max)
+	assert.Equal(t, int(entries.Load())+1, count)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
