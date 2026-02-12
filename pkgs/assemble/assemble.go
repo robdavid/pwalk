@@ -93,6 +93,7 @@ func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr er
 					direrr = child.Error
 					if direrr == walk.ErrSkip {
 						current.Index++
+						direrr = nil
 						continue
 					}
 					as.readState = as.readState.Push(CoOrd{child, 0})

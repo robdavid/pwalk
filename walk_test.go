@@ -42,6 +42,7 @@ type MockDirEntry struct {
 	size      int64
 	modtime   time.Time
 	readDelay time.Duration
+	err       error
 }
 
 type MockEntryInfo struct {
@@ -94,7 +95,7 @@ func (mf MockFilesystem) Get(name string) *MockDirEntry {
 }
 
 func (mf MockFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
-	if p.IsRoot() {
+	if p.Len() == 0 {
 		entries := make([]fs.DirEntry, len(mf.root))
 		for i, ent := range mf.root {
 			entries[i] = ent
@@ -109,7 +110,12 @@ func (mf MockFilesystem) ReadDir(p path.RootedPath) ([]fs.DirEntry, error) {
 		if sub == nil {
 			return nil, fs.ErrNotExist
 		}
-		return sub.children.ReadDir(p.Sub())
+		entries, err := sub.children.ReadDir(p.Sub())
+		if p.Len() == 1 {
+			return entries, sub.err
+		} else {
+			return entries, err
+		}
 	}
 }
 
@@ -122,7 +128,7 @@ func (mf MockFilesystem) Lstat(p path.RootedPath) (fs.FileInfo, error) {
 		if ent == nil {
 			return nil, fs.ErrNotExist
 		} else {
-			return MockEntryInfo{ent}, nil
+			return MockEntryInfo{ent}, ent.err
 		}
 	default:
 		ent := mf.Get(p.Top())
@@ -137,6 +143,7 @@ func (mf MockFilesystem) Lstat(p path.RootedPath) (fs.FileInfo, error) {
 type buildInfo struct {
 	mode   fs.FileMode
 	repeat int
+	err    error
 }
 
 type buildConfig struct {
@@ -152,7 +159,7 @@ type buildState struct {
 	infopos int
 }
 
-func (b *buildState) nextFilemode() fs.FileMode {
+func (b *buildState) nextFilemode() (fs.FileMode, error) {
 
 	// p is set to logical position of next buildinfo
 	p := b.infopos
@@ -177,9 +184,9 @@ func (b *buildState) nextFilemode() fs.FileMode {
 	}
 	if b.depth >= b.config.depth {
 		// If we hit max depth, make everything a non-directory.
-		return bi.mode & ^fs.ModeDir
+		return bi.mode & ^fs.ModeDir, nil
 	} else {
-		return bi.mode
+		return bi.mode, bi.err
 	}
 }
 
@@ -188,13 +195,14 @@ func (b *buildState) makeTree() (MockFilesystem, int) {
 	total := len(children)
 	for i := range children {
 		name := fmt.Sprintf("child-%d", i)
-		mode := b.nextFilemode()
+		mode, err := b.nextFilemode()
 		children[i] = &MockDirEntry{
 			name:      name,
 			mode:      mode,
 			modtime:   time.Now(),
 			size:      int64(b.config.breadth)*int64(b.config.depth) + int64(i),
 			readDelay: b.config.readDelay,
+			err:       err,
 		}
 		if mode.IsDir() {
 			var subtotal int
@@ -304,6 +312,116 @@ func TestParTreeNoSymlinks(t *testing.T) {
 	end := time.Now()
 	assert.Less(t, count, max)
 	assert.Equal(t, int(entries.Load())+1, count)
+	assert.Greater(t, wp.MaxActive, 1)
+	sequentialTime := readDelay * time.Duration(count)
+	assert.Less(t, end.Sub(start), sequentialTime)
+}
+
+func filterErrs(t *testing.T, counter, skipped *atomic.Int32) walk.Filter {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
+		if err != nil {
+			skipped.Add(1)
+			return walk.FilterSkip, err
+		}
+		counter.Add(1)
+		return walk.FilterAccept, nil
+	}
+}
+
+func TestParTreeWithErrs(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree, max := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build: []buildInfo{
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | 0777, repeat: 1},
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir, repeat: 1, err: os.ErrPermission},
+		},
+	})
+	wp := workpool.New(12, 0)
+	var count int
+	var entries, skipped atomic.Int32
+	prevPath := ""
+	start := time.Now()
+	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+		assert.NoError(t, err, "Error for path %s", pth)
+		pthString := pth.String()
+		if prevPath != "" {
+			require.Greater(t, pthString, prevPath)
+		}
+		count++
+		prevPath = pthString
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(filterErrs(t, &entries, &skipped)),
+	)
+	wp.Stop()
+	end := time.Now()
+	assert.Less(t, count, max)
+	// Skipped entries are also seen by the filter in non-err state in dir entry
+	// prior to error state when an attempt is made to read that directory.
+	// Therefore removing their number from the total count gives the entry
+	// count the walk function observes.
+	assert.Equal(t, int(entries.Load()-skipped.Load())+1, count)
+	assert.Greater(t, wp.MaxActive, 1)
+	sequentialTime := readDelay * time.Duration(count)
+	assert.Less(t, end.Sub(start), sequentialTime)
+}
+
+func filterErrsSkipdir(t *testing.T, counter, skipped *atomic.Int32) walk.Filter {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
+		if err != nil {
+			skipped.Add(1)
+			return walk.FilterSkipDir, err
+		}
+		counter.Add(1)
+		return walk.FilterAccept, nil
+	}
+}
+
+func TestParTreeWithErrsSkipdir(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree, max := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build: []buildInfo{
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | 0777, repeat: 1},
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir, repeat: 1, err: os.ErrPermission},
+		},
+	})
+	wp := workpool.New(12, 0)
+	var count, errCount int
+	var entries, skipped atomic.Int32
+	prevPath := ""
+	start := time.Now()
+	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+		if err != nil {
+			assert.ErrorIs(t, err, os.ErrPermission)
+			errCount++
+		}
+		pthString := pth.String()
+		if prevPath != "" {
+			require.Greater(t, pthString, prevPath)
+		}
+		count++
+		prevPath = pthString
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(filterErrsSkipdir(t, &entries, &skipped)),
+	)
+	wp.Stop()
+	end := time.Now()
+	assert.Less(t, count, max)
+	assert.Equal(t, int(entries.Load())+1, count)
+	assert.Equal(t, int(skipped.Load()), errCount)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
