@@ -4,12 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"runtime"
 
 	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
 	"github.com/robdavid/pwalk/pkgs/workpool"
 )
 
@@ -18,9 +18,11 @@ func main() {
 	var usage bool
 	var size uint64
 	var threads int
+	var symlinks bool
 	flag.BoolVar(&quiet, "quiet", false, "Doesn't print file names, only totals")
 	flag.BoolVar(&usage, "usage", false, "Total file usage")
 	flag.IntVar(&threads, "threads", runtime.NumCPU(), "Set number of threads")
+	flag.BoolVar(&symlinks, "symlinks", false, "Follow symlinks to directories")
 	flag.Parse()
 	for _, file := range flag.Args() {
 		count := 0
@@ -41,14 +43,13 @@ func main() {
 				}
 			}
 		}
-		wp := workpool.New(threads, threads)
-		func() {
-			defer wp.Stop()
-			wp.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-				Level: slog.LevelError,
-			}))
-			pwalk.Walk(file, fn, wp)
-		}()
+		wp := workpool.New(threads, 0)
+		defer wp.Stop()
+		var filter walk.Filter
+		if !symlinks {
+			filter = walk.FilterDirSymLinks
+		}
+		pwalk.Walk(file, fn, walk.ConfigWorkpool(wp), walk.ConfigFilter(filter))
 		fmt.Printf("Total: %d\n", count)
 		fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
 		if usage {

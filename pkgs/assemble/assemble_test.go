@@ -1,16 +1,15 @@
-package assemble
+package assemble_test
 
 import (
-	"io"
 	"io/fs"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
-	"log/slog"
-
-	"github.com/robdavid/pwalk/pkgs/dir"
+	"github.com/robdavid/pwalk/pkgs/assemble"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,31 +37,28 @@ func (t testFileInfo) ModTime() time.Time { return time.Time{} }
 func (t testFileInfo) IsDir() bool        { return t.isDir }
 func (t testFileInfo) Sys() any           { return nil }
 
-func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *dir.Dir {
+func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *walk.Dir {
 	// Sort entries by name for binary search
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
 	})
-	dirEntries := make([]dir.DirEntry, len(entries))
+	dirEntries := make([]walk.DirEntry, len(entries))
 	for i, ent := range entries {
 		if ent.isDir {
-			dirEntries[i] = dir.MakeDirEntryDir(ent)
+			dirEntries[i] = walk.MakeDirEntryDir(ent)
 		} else {
-			dirEntries[i] = dir.MakeDirEntryFile(ent)
+			dirEntries[i] = walk.MakeDirEntryFile(ent)
 		}
 	}
-	return &dir.Dir{Path: p, Entries: dirEntries, Error: err}
+	return &walk.Dir{Path: p, Entries: dirEntries, Error: err}
 }
 
 // TestAddAndNextSimple tests basic addition and traversal of a simple tree.
 func TestAddAndNextSimple(t *testing.T) {
-	as := &Assembly{
-		stream: make(chan *dir.Dir, 10), // buffer to avoid blocking
-		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
-	}
+	as := assemble.New(walk.NewConfigData(), nil)
 
 	// Create root dir
-	rootPath := path.NewAt("/root")
+	rootPath := path.NewAt(rootPathStr)
 	rootDir := createTestDir(rootPath, []testDirEntry{
 		{"file1.txt", false, 100},
 		{"subdir", true, 0},
@@ -94,19 +90,21 @@ func TestAddAndNextSimple(t *testing.T) {
 		results = append(results, fnext.String())
 	}
 
-	expected := []string{"/root", "/root/file1.txt", "/root/subdir", "/root/subdir/file2.txt"}
+	expected := []string{
+		rootPathStr,
+		filepath.Join(rootPathStr, "file1.txt"),
+		filepath.Join(rootPathStr, "subdir"),
+		filepath.Join(rootPathStr, "subdir", "file2.txt"),
+	}
 	assert.Equal(t, expected, results)
 }
 
 // TestAddOutOfOrder simulates concurrent addition by adding directories incrementally,
 // verifying that Next blocks when child directories aren't available yet, and resumes correctly after they're added.
 func TestAddOutOfOrder(t *testing.T) {
-	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
-		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
-	}
+	as := assemble.New(walk.NewConfigData(), nil)
 
-	rootPath := path.NewAt("/root")
+	rootPath := path.NewAt(rootPathStr)
 
 	// Add root with 'a'
 	rootDir := createTestDir(rootPath, []testDirEntry{
@@ -194,18 +192,22 @@ func TestAddOutOfOrder(t *testing.T) {
 
 	assert.Greater(t, blockedCount, 0)
 
-	expected := []string{"/root", "/root/a", "/root/a/b", "/root/a/b/file3.txt", "/root/a/file_a.txt", "/root/file1.txt"}
+	expected := []string{
+		rootPathStr,
+		filepath.Join(rootPathStr, "a"),
+		filepath.Join(rootPathStr, "a", "b"),
+		filepath.Join(rootPathStr, "a", "b", "file3.txt"),
+		filepath.Join(rootPathStr, "a", "file_a.txt"),
+		filepath.Join(rootPathStr, "file1.txt"),
+	}
 	assert.Equal(t, expected, results)
 }
 
 // TestNextTraversalOrder ensures depth-first traversal order across multiple subdirectories.
 func TestNextTraversalOrder(t *testing.T) {
-	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
-		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
-	}
+	as := assemble.New(walk.NewConfigData(), nil)
 
-	rootPath := path.NewAt("/root")
+	rootPath := path.NewAt(rootPathStr)
 
 	// Create a more complex tree
 	rootDir := createTestDir(rootPath, []testDirEntry{
@@ -249,26 +251,23 @@ func TestNextTraversalOrder(t *testing.T) {
 	}
 
 	expected := []string{
-		"/root",
-		"/root/dir1",
-		"/root/dir1/file2.txt",
-		"/root/dir1/subdir",
-		"/root/dir1/subdir/file3.txt",
-		"/root/dir2",
-		"/root/dir2/file4.txt",
-		"/root/file1.txt",
+		rootPathStr,
+		filepath.Join(rootPathStr, "dir1"),
+		filepath.Join(rootPathStr, "dir1", "file2.txt"),
+		filepath.Join(rootPathStr, "dir1", "subdir"),
+		filepath.Join(rootPathStr, "dir1", "subdir", "file3.txt"),
+		filepath.Join(rootPathStr, "dir2"),
+		filepath.Join(rootPathStr, "dir2", "file4.txt"),
+		filepath.Join(rootPathStr, "file1.txt"),
 	}
 	assert.Equal(t, expected, results)
 }
 
 // TestNextWithErrors verifies error handling for directories with read errors.
 func TestNextWithErrors(t *testing.T) {
-	as := &Assembly{
-		stream: make(chan *dir.Dir, 10),
-		Log:    slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})),
-	}
+	as := assemble.New(walk.NewConfigData(), nil)
 
-	rootPath := path.NewAt("/root")
+	rootPath := path.NewAt(rootPathStr)
 	rootDir := createTestDir(rootPath, []testDirEntry{
 		{"baddir", true, 0},
 		{"goodfile.txt", false, 100},
@@ -299,11 +298,11 @@ func TestNextWithErrors(t *testing.T) {
 	}
 
 	// Check that baddir has error
-	assert.Equal(t, "/root", results[0].path)
+	assert.Equal(t, rootPathStr, results[0].path)
 	assert.False(t, results[0].isErr)
-	assert.Equal(t, "/root/baddir", results[1].path)
+	assert.Equal(t, filepath.Join(rootPathStr, "baddir"), results[1].path)
 	assert.True(t, results[1].isErr)
-	assert.Equal(t, "/root/goodfile.txt", results[2].path)
+	assert.Equal(t, filepath.Join(rootPathStr, "goodfile.txt"), results[2].path)
 	assert.False(t, results[2].isErr)
 }
 

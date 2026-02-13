@@ -1,49 +1,55 @@
 package assemble
 
 import (
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"sync"
 
-	"github.com/robdavid/pwalk/pkgs/dir"
 	"github.com/robdavid/pwalk/pkgs/path"
+	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
 type WalkFn = func(path.RootedPath, error, fs.DirEntry)
 type Assembly struct {
-	root      *dir.Dir
+	root      *walk.Dir
 	readState Location
-	stream    chan *dir.Dir
+	stream    chan *walk.Dir
 	wg        sync.WaitGroup
+	config    *walk.ConfigData
 	WalkFn    WalkFn
 	Log       *slog.Logger
 }
 
-func New(walkFn WalkFn) *Assembly {
+func New(config *walk.ConfigData, walkFn WalkFn) *Assembly {
 	as := &Assembly{
 		WalkFn: walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
-		stream: make(chan *dir.Dir),
+		config: config,
+		stream: make(chan *walk.Dir),
 	}
 	as.wg.Add(1)
 	go as.process()
 	return as
 }
 
-func (as *Assembly) Add(d *dir.Dir) {
-	if len(d.Path.SubPath) == 0 {
+func (as *Assembly) Add(d *walk.Dir) {
+	if d.Path.IsRoot() {
 		as.root = d
 	} else {
-		var parent *dir.Dir
+		var parent *walk.Dir
 		var index int
 		next := as.root
-		for _, p := range d.Path.SubPath {
+		for p := range d.Path.SubPaths() {
 			parent = next
 			index = parent.EntryIndex(p)
+			if index < 0 {
+				panic(fmt.Errorf("Cannot find %s in %s", p, parent.Path))
+			}
 			next = parent.Entries[index].Child()
 		}
 		parent.Entries[index] = parent.Entries[index].WithChild(d)
@@ -51,10 +57,10 @@ func (as *Assembly) Add(d *dir.Dir) {
 	}
 }
 
-func (as *Assembly) Next() (fnext path.RootedPath, next dir.DirEntry, direrr error, more bool, blocked bool) {
+func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
 		as.readState = as.readState.Push(CoOrd{Dir: as.root, Index: 0})
-		next = dir.DirEntryDir{DirEntry: dir.NewRootDirEntry(as.root.Path)}
+		next = walk.DirEntryDir{DirEntry: walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)}
 		fnext = as.root.Path
 		direrr = as.root.Error
 		more = true
@@ -85,6 +91,11 @@ func (as *Assembly) Next() (fnext path.RootedPath, next dir.DirEntry, direrr err
 					as.Log.Debug("Waiting for directory", "path", fnext)
 				} else {
 					direrr = child.Error
+					if direrr == walk.ErrSkip {
+						current.Index++
+						direrr = nil
+						continue
+					}
 					as.readState = as.readState.Push(CoOrd{child, 0})
 					as.Log.Debug("Found directory", "path", fnext)
 				}
@@ -121,6 +132,6 @@ func (as *Assembly) Close() {
 	close(as.stream)
 }
 
-func (as *Assembly) Sink(d *dir.Dir) {
+func (as *Assembly) Sink(d *walk.Dir) {
 	as.stream <- d
 }

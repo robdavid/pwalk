@@ -27,7 +27,7 @@ func New(size int, queueSize int) *Workpool {
 		input:   ch,
 		Size:    size,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level:     slog.LevelDebug,
+			Level:     slog.LevelWarn,
 			AddSource: false,
 		})),
 	}

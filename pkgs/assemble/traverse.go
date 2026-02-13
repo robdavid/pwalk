@@ -1,11 +1,11 @@
 package assemble
 
 import (
-	"github.com/robdavid/pwalk/pkgs/dir"
+	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
 type CoOrd struct {
-	Dir   *dir.Dir
+	Dir   *walk.Dir
 	Index int
 }
 
