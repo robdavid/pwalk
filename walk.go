@@ -34,10 +34,13 @@ type MappedWalkFn[T any] = assemble.MappedWalkFn[T]
 //   - FilterAccept: The entry is included; normal behavior.
 //   - FilterSkip: The entry is not included and it's name will not appear in final results.
 //   - FilterSkipDir: Typically the entry's parent directory will be included, but will appear empty,
-//     unless the currently call is as a result of an error in a directory read (err is non-nil). In
+//     unless the current call is as a result of an error in a directory read (err is non-nil). In
 //     this case this directory will be included but will appear empty.
 //
-// This is called concurrently in multiple goroutines as
+// There is also an error return. This error is ultimately passed through to the
+// error parameter of the [WalkFn] function.
+//
+// This function is called concurrently in multiple goroutines as
 // directories are being read, so it should be thread-safe.
 type Filter = walk.Filter
 type MapFn[T any] = walk.MapFn[T]

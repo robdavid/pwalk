@@ -56,7 +56,6 @@ func main() {
         fmt.Println(p.String())
     }
 
-    // Walk uses an internal workpool by default when no options are provided.
     pwalk.Walk(".", fn)
 }
 ```
