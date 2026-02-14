@@ -114,6 +114,16 @@ func (rp RootedPath) Len() int {
 	return len(rp.subPath)
 }
 
+// Root returns the root path string of this RootedPath.
+func (rp RootedPath) Root() string {
+	return rp.root
+}
+
+// Get returns the path element at the given index after the root.
+func (rp RootedPath) Get(n int) string {
+	return rp.subPath[n]
+}
+
 // IsRoot returns true if this path is the root (i.e. there are no path elements
 // after the root).
 func (rp RootedPath) IsRoot() bool {

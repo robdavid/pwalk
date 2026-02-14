@@ -23,6 +23,22 @@ type Config = walk.Config
 type WalkFn = assemble.WalkFn
 
 type MappedWalkFn[T any] = assemble.MappedWalkFn[T]
+
+// Filter is a function that is called with each path and directory entry as
+// directories are being read, and can return a value to determine whether or not to
+// include a given entry. If an error is encountered while reading a directory,
+// the filter will be called with that directory path twice. The first time as
+// it is being read from the parent directory, and always with an nil error. The
+// second time with the same path and the error encountered while reading it.
+// There are three possible return values from the filter function:
+//   - FilterAccept: The entry is included; normal behavior.
+//   - FilterSkip: The entry is not included and it's name will not appear in final results.
+//   - FilterSkipDir: Typically the entry's parent directory will be included, but will appear empty,
+//     unless the currently call is as a result of an error in a directory read (err is non-nil). In
+//     this case this directory will be included but will appear empty.
+//
+// This is called concurrently in multiple goroutines as
+// directories are being read, so it should be thread-safe.
 type Filter = walk.Filter
 type MapFn[T any] = walk.MapFn[T]
 
@@ -44,10 +60,58 @@ func toMappedWalkFn(fn WalkFn) MappedWalkFn[walk.Void] {
 	}
 }
 
+// Walk traverses the directory tree rooted at the given path and calls fn for each
+// file, directory, and error encountered. It walks the tree depth-first in deterministic
+// (lexicographical) order.
+//
+// Parameters:
+//   - root: the root directory path to start walking from
+//   - fn: WalkFn callback invoked for each path; receives the path, an optional error, and dir entry details.
+//     Files are delivered in a consistent depth-first sorted directory entry order.
+//   - config: optional variadic configuration functions that can adjust walk behavior.
+//
+// Configuration functions:
+//   - ConfigThreads(n): set the number of worker threads (default: runtime.NumCPU()). This option is
+//     ignored if a user supplied workpool is provided.
+//   - ConfigWorkpool(wp): provide a custom Workpool implementation (default: internal workpool created).
+//   - ConfigFilter(f): supply a Filter function to skip or reject paths during traversal. This is called
+//     while directories are being read, so expect it to be called concurrently in multiple goroutines.
+//   - ConfigFilesystem(fs): override the default filesystem implementation (for testing or custom storage).
+//
+// If no config options are provided, Walk uses an internal workpool with thread count
+// equal to the system's CPU count.
 func Walk(root string, fn WalkFn, config ...Config) {
 	WalkAndMap(root, nil, toMappedWalkFn(fn), config...)
 }
 
+// WalkAndMap traverses the directory tree rooted at the given path, optionally
+// applies a mapping function to each entry, and then calls fn for each mapped
+// result, error, and entry. This is useful for transforming directory entries
+// into custom data structures or aggregating information (e.g., computing sums,
+// building maps, etc.) during traversal. Note that the mpping function is
+// called as the directories are being read, so it is called concurrently in
+// multiple goroutines and should be thread-safe.
+//
+// Parameters:
+//   - root: the root directory path to start walking from
+//   - mp: optional MapFn that transforms each directory entry; if nil, entries are passed with
+//     a zero mapped value.
+//   - fn: MappedWalkFn callback invoked for each entry with the map result; receives the path,
+//     the mapped value, an optional error, and dir entry details. Files are delivered in
+//     a consistent depth-first sorted directory entry order.
+//   - config: optional variadic configuration functions that can adjust walk behavior:
+//
+// Configuration functions:
+//   - ConfigThreads(n): set the number of worker threads (default: runtime.NumCPU())
+//   - ConfigWorkpool(wp): provide a custom Workpool implementation (default: internal workpool created)
+//   - ConfigFilter(f): supply a Filter function to skip or reject paths during traversal. This is called
+//     while directories are being read, so expect it to be called concurrently in multiple goroutines.
+//   - ConfigFilesystem(fs): override the default filesystem implementation (for testing or custom storage)
+//
+// If no config options are provided, WalkAndMap uses an internal workpool with
+// thread count equal to the system's CPU count. The mapping function (if
+// provided) is called once per directory and its result is passed to fn along
+// with all contained files and subdirectories.
 func WalkAndMap[T any](root string, mp MapFn[T], fn MappedWalkFn[T], config ...Config) {
 	configData := walk.NewConfigData()
 	for _, c := range config {
