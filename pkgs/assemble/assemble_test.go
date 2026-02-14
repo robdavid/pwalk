@@ -37,25 +37,25 @@ func (t testFileInfo) ModTime() time.Time { return time.Time{} }
 func (t testFileInfo) IsDir() bool        { return t.isDir }
 func (t testFileInfo) Sys() any           { return nil }
 
-func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *walk.Dir {
+func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *walk.Dir[walk.Void] {
 	// Sort entries by name for binary search
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
 	})
-	dirEntries := make([]walk.DirEntry, len(entries))
+	dirEntries := make([]walk.DirEntry[walk.Void], len(entries))
 	for i, ent := range entries {
 		if ent.isDir {
-			dirEntries[i] = walk.MakeDirEntryDir(ent)
+			dirEntries[i] = walk.MakeUnmappedDirEntryDir[walk.Void](ent)
 		} else {
-			dirEntries[i] = walk.MakeDirEntryFile(ent)
+			dirEntries[i] = walk.MakeUnmappedDirEntryFile[walk.Void](ent)
 		}
 	}
-	return &walk.Dir{Path: p, Entries: dirEntries, Error: err}
+	return &walk.Dir[walk.Void]{Path: p, Entries: dirEntries, Error: err}
 }
 
 // TestAddAndNextSimple tests basic addition and traversal of a simple tree.
 func TestAddAndNextSimple(t *testing.T) {
-	as := assemble.New(walk.NewConfigData(), nil)
+	as := assemble.New[walk.Void](walk.NewConfigData(), nil, nil)
 
 	// Create root dir
 	rootPath := path.NewAt(rootPathStr)
@@ -102,7 +102,7 @@ func TestAddAndNextSimple(t *testing.T) {
 // TestAddOutOfOrder simulates concurrent addition by adding directories incrementally,
 // verifying that Next blocks when child directories aren't available yet, and resumes correctly after they're added.
 func TestAddOutOfOrder(t *testing.T) {
-	as := assemble.New(walk.NewConfigData(), nil)
+	as := assemble.New[walk.Void](walk.NewConfigData(), nil, nil)
 
 	rootPath := path.NewAt(rootPathStr)
 
@@ -205,7 +205,7 @@ func TestAddOutOfOrder(t *testing.T) {
 
 // TestNextTraversalOrder ensures depth-first traversal order across multiple subdirectories.
 func TestNextTraversalOrder(t *testing.T) {
-	as := assemble.New(walk.NewConfigData(), nil)
+	as := assemble.New[walk.Void](walk.NewConfigData(), nil, nil)
 
 	rootPath := path.NewAt(rootPathStr)
 
@@ -265,7 +265,7 @@ func TestNextTraversalOrder(t *testing.T) {
 
 // TestNextWithErrors verifies error handling for directories with read errors.
 func TestNextWithErrors(t *testing.T) {
-	as := assemble.New(walk.NewConfigData(), nil)
+	as := assemble.New[walk.Void](walk.NewConfigData(), nil, nil)
 
 	rootPath := path.NewAt(rootPathStr)
 	rootDir := createTestDir(rootPath, []testDirEntry{

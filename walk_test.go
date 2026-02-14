@@ -1,4 +1,4 @@
-package pwalk
+package pwalk_test
 
 import (
 	"fmt"
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/robdavid/pwalk"
 	"github.com/robdavid/pwalk/pkgs/path"
 	"github.com/robdavid/pwalk/pkgs/walk"
 	"github.com/robdavid/pwalk/pkgs/workpool"
@@ -21,18 +22,26 @@ func TestWalk(t *testing.T) {
 	count := 0
 	wp := workpool.New(12, 0)
 	var size int64
-	Walk(".", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+	pwalk.Walk(".", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		require.NoError(t, err)
-		fmt.Println(pth)
+		inf, err := dirent.Info()
+		require.NoError(t, err)
+		fmt.Println(pth, inf.Size())
+		size += inf.Size()
 		count++
-		if info, err := dirent.Info(); err == nil {
-			size += info.Size()
-		}
-	}, walk.ConfigWorkpool(wp))
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilter(func(p path.RootedPath, e fs.DirEntry, err error) (walk.FilterAction, error) {
+			if p.Top() == ".git" {
+				return walk.FilterSkip, nil
+			} else {
+				return walk.FilterAccept, err
+			}
+		}))
 	wp.Stop()
 	assert.Greater(t, wp.MaxActive, 0)
-	assert.Greater(t, count, 100)
-	assert.Greater(t, size, int64(5*1024*1024))
+	assert.Greater(t, count, 30)
+	assert.Greater(t, size, int64(50*1024))
 }
 
 type MockDirEntry struct {
@@ -241,7 +250,7 @@ func TestParTree(t *testing.T) {
 	var count int
 	prevPath := ""
 	start := time.Now()
-	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		require.NoError(t, err)
 		pthString := pth.String()
 		if prevPath != "" {
@@ -253,6 +262,47 @@ func TestParTree(t *testing.T) {
 			count++
 		}
 	}, walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree))
+	wp.Stop()
+	fmt.Println("Count:", count)
+	assert.Equal(t, entries, count)
+	end := time.Now()
+	assert.Greater(t, wp.MaxActive, 1)
+	sequentialTime := readDelay * time.Duration(count)
+	assert.Less(t, end.Sub(start), sequentialTime)
+}
+
+func TestParMapTree(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree, entries := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build:     []buildInfo{{mode: 0777, repeat: 3}, {mode: os.ModeDir | 0777, repeat: 1}},
+	})
+	wp := workpool.New(12, 0)
+	var size int64
+	var count int
+	prevPath := ""
+	start := time.Now()
+	pwalk.WalkAndMap[fs.FileInfo]("",
+		func(pth path.RootedPath, dirent fs.DirEntry, err error) (fs.FileInfo, error) {
+			return dirent.Info()
+		},
+		func(pth path.RootedPath, dirent fs.DirEntry, err error, info fs.FileInfo) {
+			require.NoError(t, err)
+			pthString := pth.String()
+			if prevPath != "" {
+				assert.Greater(t, pthString, prevPath)
+			}
+			prevPath = pthString
+			if info, err := dirent.Info(); err == nil {
+				size += info.Size()
+				count++
+			}
+			assert.Equal(t, dirent.Type(), info.Mode())
+		},
+		walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree),
+	)
 	wp.Stop()
 	fmt.Println("Count:", count)
 	assert.Equal(t, entries, count)
@@ -291,7 +341,7 @@ func TestParTreeNoSymlinks(t *testing.T) {
 	var entries atomic.Int32
 	prevPath := ""
 	start := time.Now()
-	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		require.NoError(t, err)
 		pthString := pth.String()
 		if prevPath != "" {
@@ -346,7 +396,7 @@ func TestParTreeWithErrs(t *testing.T) {
 	var entries, skipped atomic.Int32
 	prevPath := ""
 	start := time.Now()
-	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		assert.NoError(t, err, "Error for path %s", pth)
 		pthString := pth.String()
 		if prevPath != "" {
@@ -401,7 +451,7 @@ func TestParTreeWithErrsSkipdir(t *testing.T) {
 	var entries, skipped atomic.Int32
 	prevPath := ""
 	start := time.Now()
-	Walk("", func(pth path.RootedPath, err error, dirent fs.DirEntry) {
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		if err != nil {
 			assert.ErrorIs(t, err, os.ErrPermission)
 			errCount++
