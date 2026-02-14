@@ -11,7 +11,7 @@ import (
 
 func TestRunPool(t *testing.T) {
 	var lock sync.Mutex
-	const size = 10
+	const size = 4
 	for _, onFull := range []workpool.OnFullAction{
 		workpool.OnFullInline,
 		workpool.OnFullBlock,
