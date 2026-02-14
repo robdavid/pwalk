@@ -19,6 +19,11 @@ type ConfigData struct {
 	Filesystem Filesystem
 }
 
+type WalkConfig[T any] struct {
+	ConfigData
+	Mapper MapFn[T]
+}
+
 func NewConfigData() *ConfigData {
 	return &ConfigData{
 		Filesystem: RealFilesystem{},
@@ -26,6 +31,7 @@ func NewConfigData() *ConfigData {
 	}
 }
 
+// Config is a function that mutates the current walk configuration
 type Config func(*ConfigData)
 
 func ConfigFilter(f Filter) func(*ConfigData) {

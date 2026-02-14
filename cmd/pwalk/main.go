@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 	for _, file := range flag.Args() {
 		count := 0
-		fn := func(fpath path.RootedPath, err error, ent fs.DirEntry) {
+		fn := func(fpath path.RootedPath, ent fs.DirEntry, err error) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
 			} else {

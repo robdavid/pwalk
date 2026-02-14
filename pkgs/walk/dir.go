@@ -12,42 +12,59 @@ import (
 
 var ErrSkip = errors.New("entry skipped")
 
-type DirEntry interface {
+type Void struct{}
+
+type DirEntry[T any] interface {
 	fs.DirEntry
-	Child() *Dir
-	WithChild(*Dir) DirEntry
+	GetMapped() T
+	Child() *Dir[T]
+	WithChild(*Dir[T]) DirEntry[T]
 }
 
-type DirEntryFile struct {
+type DirEntryFile[T any] struct {
 	fs.DirEntry
+	mapped T
 }
 
-func (DirEntryFile) Child() *Dir {
+func (f DirEntryFile[T]) GetMapped() T {
+	return f.mapped
+}
+
+func (DirEntryFile[T]) Child() *Dir[T] {
 	return nil
 }
 
-func (f DirEntryFile) WithChild(d *Dir) DirEntry {
+func (f DirEntryFile[T]) WithChild(d *Dir[T]) DirEntry[T] {
 	panic("Tried to set sub directory " + d.Path.Path() + " on non directory " + f.Name())
 }
 
-type DirEntryDir struct {
+type DirEntryDir[T any] struct {
 	fs.DirEntry
-	child *Dir
+	child  *Dir[T]
+	mapped T
 }
 
-func (d DirEntryDir) Child() *Dir {
+func MakeDirEntryDir[T any](dirEntry fs.DirEntry, mapped T) DirEntryDir[T] {
+	return DirEntryDir[T]{DirEntry: dirEntry, mapped: mapped}
+}
+
+func (d DirEntryDir[T]) GetMapped() T {
+	return d.mapped
+}
+
+func (d DirEntryDir[T]) Child() *Dir[T] {
 	return d.child
 }
 
-func (d DirEntryDir) WithChild(c *Dir) DirEntry {
-	return DirEntryDir{d.DirEntry, c}
+func (d DirEntryDir[T]) WithChild(c *Dir[T]) DirEntry[T] {
+	return DirEntryDir[T]{d.DirEntry, c, d.mapped}
 }
 
 // Dir contains the results from reading a directory, including
 // the directory path, the entries read and any error encountered.
-type Dir struct {
+type Dir[T any] struct {
 	Path    path.RootedPath
-	Entries []DirEntry
+	Entries []DirEntry[T]
 	Error   error
 }
 
@@ -68,9 +85,10 @@ const (
 )
 
 type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
+type MapFn[T any] func(path.RootedPath, os.DirEntry, error) (T, error)
 
 // Read reads the directory at p, and returns a pointer to a [Dir] object
-func Read(config *ConfigData, p path.RootedPath) *Dir {
+func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	ents, err := config.Filesystem.ReadDir(p)
 	filter := config.Filter
 	if filter != nil && err != nil {
@@ -78,34 +96,40 @@ func Read(config *ConfigData, p path.RootedPath) *Dir {
 		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err)
 		switch action {
 		case FilterSkipDir:
-			return &Dir{p, []DirEntry{}, err}
+			return &Dir[T]{p, []DirEntry[T]{}, err}
 		case FilterSkip:
-			return &Dir{p, []DirEntry{}, ErrSkip}
+			return &Dir[T]{p, []DirEntry[T]{}, ErrSkip}
 		}
 	}
-	dirs := make([]DirEntry, 0, len(ents))
+	dirs := make([]DirEntry[T], 0, len(ents))
 	for _, ent := range ents {
 		if filter != nil {
 			var action FilterAction
 			action, err := filter(p.Append(ent.Name()), ent, nil)
 			switch action {
 			case FilterSkipDir:
-				return &Dir{p, []DirEntry{}, err}
+				return &Dir[T]{p, []DirEntry[T]{}, err}
 			case FilterSkip:
 				continue
 			}
 		}
+		var mapped T
+		if config.Mapper != nil {
+			var nerr error
+			mapped, nerr = config.Mapper(p, ent, err)
+			err = errors.Join(err, nerr)
+		}
 		if ent.IsDir() {
-			dirs = append(dirs, DirEntryDir{ent, nil})
+			dirs = append(dirs, DirEntryDir[T]{ent, nil, mapped})
 		} else {
-			dirs = append(dirs, DirEntryFile{ent})
+			dirs = append(dirs, DirEntryFile[T]{ent, mapped})
 		}
 	}
-	return &Dir{p, dirs, err}
+	return &Dir[T]{p, dirs, err}
 }
 
-func (d *Dir) EntryIndex(name string) int {
-	index, found := slices.BinarySearchFunc(d.Entries, name, func(e DirEntry, target string) int {
+func (d *Dir[T]) EntryIndex(name string) int {
+	index, found := slices.BinarySearchFunc(d.Entries, name, func(e DirEntry[T], target string) int {
 		return strings.Compare(e.Name(), target)
 	})
 	if !found {
@@ -151,12 +175,14 @@ func (r *RootDirEntry) Type() fs.FileMode {
 	}
 }
 
-func MakeDirEntryDir(ent fs.DirEntry) DirEntry {
-	return DirEntryDir{ent, nil}
+func MakeUnmappedDirEntryDir[T any](ent fs.DirEntry) DirEntry[T] {
+	var zero T
+	return DirEntryDir[T]{ent, nil, zero}
 }
 
-func MakeDirEntryFile(ent fs.DirEntry) DirEntry {
-	return DirEntryFile{ent}
+func MakeUnmappedDirEntryFile[T any](ent fs.DirEntry) DirEntry[T] {
+	var zero T
+	return DirEntryFile[T]{ent, zero}
 }
 
 type AnyDirEntry struct {

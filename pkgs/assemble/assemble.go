@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -11,37 +12,44 @@ import (
 	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
-type WalkFn = func(path.RootedPath, error, fs.DirEntry)
-type Assembly struct {
-	root      *walk.Dir
-	readState Location
-	stream    chan *walk.Dir
+// WalkFn is a function that is called with each path encountered when
+// walking the directory tree, along with any error code and directory
+// entry details.
+type WalkFn = func(path.RootedPath, fs.DirEntry, error)
+type MappedWalkFn[T any] = func(path.RootedPath, fs.DirEntry, error, T)
+
+type Assembly[T any] struct {
+	root      *walk.Dir[T]
+	readState Location[T]
+	stream    chan *walk.Dir[T]
 	wg        sync.WaitGroup
 	config    *walk.ConfigData
-	WalkFn    WalkFn
+	WalkFn    MappedWalkFn[T]
+	MapFn     walk.MapFn[T]
 	Log       *slog.Logger
 }
 
-func New(config *walk.ConfigData, walkFn WalkFn) *Assembly {
-	as := &Assembly{
+func New[T any](config *walk.ConfigData, mapFn walk.MapFn[T], walkFn MappedWalkFn[T]) *Assembly[T] {
+	as := &Assembly[T]{
+		MapFn:  mapFn,
 		WalkFn: walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
 		config: config,
-		stream: make(chan *walk.Dir),
+		stream: make(chan *walk.Dir[T]),
 	}
 	as.wg.Add(1)
 	go as.process()
 	return as
 }
 
-func (as *Assembly) Add(d *walk.Dir) {
+func (as *Assembly[T]) Add(d *walk.Dir[T]) {
 	if d.Path.IsRoot() {
 		as.root = d
 	} else {
-		var parent *walk.Dir
+		var parent *walk.Dir[T]
 		var index int
 		next := as.root
 		for p := range d.Path.SubPaths() {
@@ -57,12 +65,17 @@ func (as *Assembly) Add(d *walk.Dir) {
 	}
 }
 
-func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr error, more bool, blocked bool) {
+func (as *Assembly[T]) Next() (fnext path.RootedPath, next walk.DirEntry[T], direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
-		as.readState = as.readState.Push(CoOrd{Dir: as.root, Index: 0})
-		next = walk.DirEntryDir{DirEntry: walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)}
+		as.readState = as.readState.Push(CoOrd[T]{Dir: as.root, Index: 0})
+		dirent := walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)
+		var mapped T
+		if as.MapFn != nil {
+			mapped, direrr = as.MapFn(fnext, dirent, direrr)
+		}
+		next = walk.MakeDirEntryDir[T](dirent, mapped)
 		fnext = as.root.Path
-		direrr = as.root.Error
+		direrr = errors.Join(direrr, as.root.Error)
 		more = true
 		return
 	}
@@ -96,7 +109,7 @@ func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr er
 						direrr = nil
 						continue
 					}
-					as.readState = as.readState.Push(CoOrd{child, 0})
+					as.readState = as.readState.Push(CoOrd[T]{child, 0})
 					as.Log.Debug("Found directory", "path", fnext)
 				}
 			} else {
@@ -108,7 +121,7 @@ func (as *Assembly) Next() (fnext path.RootedPath, next walk.DirEntry, direrr er
 	}
 }
 
-func (as *Assembly) process() {
+func (as *Assembly[T]) process() {
 	defer as.wg.Done()
 	for d := range as.stream {
 		as.Add(d)
@@ -119,19 +132,19 @@ func (as *Assembly) process() {
 			} else if blocked {
 				break
 			}
-			as.WalkFn(fnext, direrror, next)
+			as.WalkFn(fnext, next, direrror, next.GetMapped())
 		}
 	}
 }
 
-func (as *Assembly) Wait() {
+func (as *Assembly[T]) Wait() {
 	as.wg.Wait()
 }
 
-func (as *Assembly) Close() {
+func (as *Assembly[T]) Close() {
 	close(as.stream)
 }
 
-func (as *Assembly) Sink(d *walk.Dir) {
+func (as *Assembly[T]) Sink(d *walk.Dir[T]) {
 	as.stream <- d
 }

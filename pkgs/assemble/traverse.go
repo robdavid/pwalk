@@ -4,14 +4,14 @@ import (
 	"github.com/robdavid/pwalk/pkgs/walk"
 )
 
-type CoOrd struct {
-	Dir   *walk.Dir
+type CoOrd[T any] struct {
+	Dir   *walk.Dir[T]
 	Index int
 }
 
-type Location []CoOrd
+type Location[T any] []CoOrd[T]
 
-func (l Location) Last() *CoOrd {
+func (l Location[T]) Last() *CoOrd[T] {
 	if len(l) == 0 {
 		return nil
 	} else {
@@ -19,10 +19,10 @@ func (l Location) Last() *CoOrd {
 	}
 }
 
-func (l Location) Push(c CoOrd) Location {
+func (l Location[T]) Push(c CoOrd[T]) Location[T] {
 	return append(l, c)
 }
 
-func (l Location) Pop() Location {
+func (l Location[T]) Pop() Location[T] {
 	return l[:len(l)-1]
 }
