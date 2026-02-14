@@ -8,12 +8,41 @@ import (
 	"sync"
 )
 
+// OnFullAction indicates what action to take for work when the
+// pool is full
+type OnFullAction int
+
+const (
+	// OnFullInline indicates that if the pool is full, new work should be executed
+	// in the current thread.
+	OnFullInline OnFullAction = iota
+	// OnFullBackground indicates that if the pool is full, new work should wait
+	// in the background until space is available, without blocking.
+	OnFullBackground
+	// OnFullBlock indicates that if the pool is full, new work should block until
+	// space is available.
+	OnFullBlock
+)
+
+func (ofa OnFullAction) String() string {
+	switch ofa {
+	case OnFullInline:
+		return "OnFullInline"
+	case OnFullBlock:
+		return "OnFullBlock"
+	case OnFullBackground:
+		return "OnFullBackground"
+	}
+	return fmt.Sprintf("OnFullAction(%d)", ofa)
+}
+
 type Workpool struct {
 	request   chan<- func()
 	input     <-chan func()
 	wg        sync.WaitGroup
 	activity  sync.WaitGroup
 	countLock sync.Mutex
+	OnFull    OnFullAction
 	Size      int
 	Active    int
 	MaxActive int
@@ -100,10 +129,23 @@ func (wp *Workpool) Run(fn func()) {
 	wp.activity.Add(1)
 	select {
 	case wp.request <- fn:
-		wp.Log.Debug("Work queued", "waiting", len(wp.request))
+		wp.Log.Debug("Work added", "waiting", len(wp.request))
 	default:
-		wp.Log.Debug("Work running inline", "waiting", len(wp.request))
-		wp.runFn(fn)
+		switch wp.OnFull {
+		case OnFullBlock:
+			wp.Log.Debug("Work blocked; pool full", "waiting", len(wp.request))
+			wp.request <- fn
+			wp.Log.Debug("Work added; block cleared", "waiting", len(wp.request))
+		case OnFullInline:
+			wp.Log.Debug("Work executing in current thread; pool full", "waiting", len(wp.request))
+			wp.runFn(fn)
+		case OnFullBackground:
+			wp.Log.Debug("Work waiting in background; pool full", "waiting", len(wp.request))
+			go func() {
+				wp.request <- fn
+				wp.Log.Debug("Work added; block cleared in background", "waiting", len(wp.request))
+			}()
+		}
 	}
 }
 
