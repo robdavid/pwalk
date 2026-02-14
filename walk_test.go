@@ -24,16 +24,24 @@ func TestWalk(t *testing.T) {
 	var size int64
 	pwalk.Walk(".", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 		require.NoError(t, err)
-		fmt.Println(pth)
+		inf, err := dirent.Info()
+		require.NoError(t, err)
+		fmt.Println(pth, inf.Size())
+		size += inf.Size()
 		count++
-		if info, err := dirent.Info(); err == nil {
-			size += info.Size()
-		}
-	}, walk.ConfigWorkpool(wp))
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilter(func(p path.RootedPath, e fs.DirEntry, err error) (walk.FilterAction, error) {
+			if p.Top() == ".git" {
+				return walk.FilterSkip, nil
+			} else {
+				return walk.FilterAccept, err
+			}
+		}))
 	wp.Stop()
 	assert.Greater(t, wp.MaxActive, 0)
-	assert.Greater(t, count, 100)
-	assert.Greater(t, size, int64(3*1024*1024))
+	assert.Greater(t, count, 30)
+	assert.Greater(t, size, int64(50*1024))
 }
 
 type MockDirEntry struct {
