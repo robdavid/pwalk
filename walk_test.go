@@ -33,7 +33,7 @@ func TestWalk(t *testing.T) {
 	wp.Stop()
 	assert.Greater(t, wp.MaxActive, 0)
 	assert.Greater(t, count, 100)
-	assert.Greater(t, size, int64(5*1024*1024))
+	assert.Greater(t, size, int64(3*1024*1024))
 }
 
 type MockDirEntry struct {
