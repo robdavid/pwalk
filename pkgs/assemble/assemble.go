@@ -29,15 +29,15 @@ type Assembly[T any] struct {
 	Log       *slog.Logger
 }
 
-func New[T any](config *walk.ConfigData, mapFn walk.MapFn[T], walkFn MappedWalkFn[T]) *Assembly[T] {
+func New[T any](config *walk.WalkConfig[T], walkFn MappedWalkFn[T]) *Assembly[T] {
 	as := &Assembly[T]{
-		MapFn:  mapFn,
+		MapFn:  config.Mapper,
 		WalkFn: walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
-		config: config,
+		config: &config.ConfigData,
 		stream: make(chan *walk.Dir[T]),
 	}
 	as.wg.Add(1)

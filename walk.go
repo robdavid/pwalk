@@ -16,6 +16,7 @@ type Workpool interface {
 
 // Config is a function that mutates the current walk configuration
 type Config = walk.Config
+type GenConfigData[T any] = walk.GenConfigData[T]
 
 // WalkFn is a function that is called with each path encountered when
 // walking the directory tree, along with any error code and directory
@@ -43,6 +44,10 @@ type MappedWalkFn[T any] = assemble.MappedWalkFn[T]
 // This function is called concurrently in multiple goroutines as
 // directories are being read, so it should be thread-safe.
 type Filter = walk.Filter
+type FilterAction = walk.FilterAction
+
+type GenFilter[T any] = walk.GenFilter[T]
+
 type MapFn[T any] = walk.MapFn[T]
 
 func runWalk[T any](config *walk.WalkConfig[T], p path.RootedPath, ass *assemble.Assembly[T]) {
@@ -60,6 +65,15 @@ func runWalk[T any](config *walk.WalkConfig[T], p path.RootedPath, ass *assemble
 func toMappedWalkFn(fn WalkFn) MappedWalkFn[walk.Void] {
 	return func(p path.RootedPath, ent fs.DirEntry, err error, void walk.Void) {
 		fn(p, ent, err)
+	}
+}
+
+func toMappedFilterFn(fn Filter) GenFilter[walk.Void] {
+	if fn == nil {
+		return nil
+	}
+	return func(p path.RootedPath, ent fs.DirEntry, err error, void walk.Void) (FilterAction, error) {
+		return fn(p, ent, err)
 	}
 }
 
@@ -84,7 +98,14 @@ func toMappedWalkFn(fn WalkFn) MappedWalkFn[walk.Void] {
 // If no config options are provided, Walk uses an internal workpool with thread count
 // equal to the system's CPU count.
 func Walk(root string, fn WalkFn, config ...Config) {
-	WalkAndMap(root, nil, toMappedWalkFn(fn), config...)
+	configData := walk.NewConfigData()
+	for _, c := range config {
+		c(configData)
+	}
+	GenWalk(root, toMappedWalkFn(fn),
+		GenConfigData[walk.Void]{GenFilter: toMappedFilterFn(configData.Filter)},
+		func(c *walk.ConfigData) { *c = *configData },
+	)
 }
 
 // WalkAndMap traverses the directory tree rooted at the given path, optionally
@@ -97,25 +118,23 @@ func Walk(root string, fn WalkFn, config ...Config) {
 //
 // Parameters:
 //   - root: the root directory path to start walking from
-//   - mp: optional MapFn that transforms each directory entry; if nil, entries are passed with
-//     a zero mapped value.
 //   - fn: MappedWalkFn callback invoked for each entry with the map result; receives the path,
 //     the mapped value, an optional error, and dir entry details. Files are delivered in
 //     a consistent depth-first sorted directory entry order.
-//   - config: optional variadic configuration functions that can adjust walk behavior:
+//   - gconf: A struct of walk generic configuration options of type T
+//   - config: optional variadic configuration functions that can adjust walk behavior.
 //
-// Configuration functions:
+// Configuration functions for config parameter:
 //   - ConfigThreads(n): set the number of worker threads (default: runtime.NumCPU())
 //   - ConfigWorkpool(wp): provide a custom Workpool implementation (default: internal workpool created)
-//   - ConfigFilter(f): supply a Filter function to skip or reject paths during traversal. This is called
-//     while directories are being read, so expect it to be called concurrently in multiple goroutines.
+//   - ConfigFilter(f): do not use - it will have no effect. Instead use Filter in gconf.
 //   - ConfigFilesystem(fs): override the default filesystem implementation (for testing or custom storage)
 //
 // If no config options are provided, WalkAndMap uses an internal workpool with
 // thread count equal to the system's CPU count. The mapping function (if
 // provided) is called once per directory and its result is passed to fn along
 // with all contained files and subdirectories.
-func WalkAndMap[T any](root string, mp MapFn[T], fn MappedWalkFn[T], config ...Config) {
+func GenWalk[T any](root string, fn MappedWalkFn[T], gconf GenConfigData[T], config ...Config) {
 	configData := walk.NewConfigData()
 	for _, c := range config {
 		c(configData)
@@ -125,9 +144,10 @@ func WalkAndMap[T any](root string, mp MapFn[T], fn MappedWalkFn[T], config ...C
 		defer wp.Stop()
 		configData.Workpool = wp
 	}
-	ass := assemble.New[T](configData, mp, fn)
+	walkConfig := walk.WalkConfig[T]{ConfigData: *configData, GenConfigData: gconf}
+	ass := assemble.New[T](&walkConfig, fn)
 	defer ass.Close()
-	walkConfig := walk.WalkConfig[T]{ConfigData: *configData, Mapper: mp}
+
 	configData.Workpool.Run(func() {
 		runWalk(&walkConfig, path.NewAt(root), ass)
 	})

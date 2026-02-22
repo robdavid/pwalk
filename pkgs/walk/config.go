@@ -19,15 +19,27 @@ type ConfigData struct {
 	Filesystem Filesystem
 }
 
+type GenConfigData[T any] struct {
+	Mapper    MapFn[T]
+	GenFilter GenFilter[T]
+}
+
 type WalkConfig[T any] struct {
 	ConfigData
-	Mapper MapFn[T]
+	GenConfigData[T]
 }
 
 func NewConfigData() *ConfigData {
 	return &ConfigData{
 		Filesystem: RealFilesystem{},
 		Threads:    runtime.NumCPU(),
+	}
+}
+
+func NewWalkConfig[T any]() *WalkConfig[T] {
+	return &WalkConfig[T]{
+		ConfigData:    *NewConfigData(),
+		GenConfigData: GenConfigData[T]{},
 	}
 }
 

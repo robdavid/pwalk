@@ -85,15 +85,18 @@ const (
 )
 
 type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
+type GenFilter[T any] func(path.RootedPath, os.DirEntry, error, T) (FilterAction, error)
+
 type MapFn[T any] func(path.RootedPath, os.DirEntry, error) (T, error)
 
 // Read reads the directory at p, and returns a pointer to a [Dir] object
 func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	ents, err := config.Filesystem.ReadDir(p)
-	filter := config.Filter
+	filter := config.GenFilter
 	if filter != nil && err != nil {
 		var action FilterAction
-		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err)
+		var dummyMapped T
+		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err, dummyMapped)
 		switch action {
 		case FilterSkipDir:
 			return &Dir[T]{p, []DirEntry[T]{}, err}
@@ -103,21 +106,20 @@ func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	}
 	dirs := make([]DirEntry[T], 0, len(ents))
 	for _, ent := range ents {
+		var mapped T
+		if config.Mapper != nil {
+			mapped, err = config.Mapper(p, ent, err)
+		}
 		if filter != nil {
 			var action FilterAction
-			action, err := filter(p.Append(ent.Name()), ent, nil)
+			action, nerr := filter(p.Append(ent.Name()), ent, err, mapped)
+			err = errors.Join(err, nerr)
 			switch action {
 			case FilterSkipDir:
 				return &Dir[T]{p, []DirEntry[T]{}, err}
 			case FilterSkip:
 				continue
 			}
-		}
-		var mapped T
-		if config.Mapper != nil {
-			var nerr error
-			mapped, nerr = config.Mapper(p, ent, err)
-			err = errors.Join(err, nerr)
 		}
 		if ent.IsDir() {
 			dirs = append(dirs, DirEntryDir[T]{ent, nil, mapped})

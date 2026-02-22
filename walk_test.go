@@ -284,10 +284,8 @@ func TestParMapTree(t *testing.T) {
 	var count int
 	prevPath := ""
 	start := time.Now()
-	pwalk.WalkAndMap[fs.FileInfo]("",
-		func(pth path.RootedPath, dirent fs.DirEntry, err error) (fs.FileInfo, error) {
-			return dirent.Info()
-		},
+	pwalk.GenWalk[fs.FileInfo]("",
+
 		func(pth path.RootedPath, dirent fs.DirEntry, err error, info fs.FileInfo) {
 			require.NoError(t, err)
 			pthString := pth.String()
@@ -300,6 +298,11 @@ func TestParMapTree(t *testing.T) {
 				count++
 			}
 			assert.Equal(t, dirent.Type(), info.Mode())
+		},
+		pwalk.GenConfigData[fs.FileInfo]{
+			Mapper: func(pth path.RootedPath, dirent fs.DirEntry, err error) (fs.FileInfo, error) {
+				return dirent.Info()
+			},
 		},
 		walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree),
 	)
