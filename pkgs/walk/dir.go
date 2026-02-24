@@ -14,6 +14,8 @@ var ErrSkip = errors.New("entry skipped")
 
 type Void struct{}
 
+var Nil Void = Void{}
+
 type DirEntry[T any] interface {
 	fs.DirEntry
 	GetMapped() T
@@ -84,19 +86,16 @@ const (
 	FilterSkipDir
 )
 
-type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
-type GenFilter[T any] func(path.RootedPath, os.DirEntry, error, T) (FilterAction, error)
-
-type MapFn[T any] func(path.RootedPath, os.DirEntry, error) (T, error)
+type PreProcessFn[T any] = func(path.RootedPath, os.DirEntry, error) (T, FilterAction, error)
+type FilterFn = func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
 
 // Read reads the directory at p, and returns a pointer to a [Dir] object
 func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	ents, err := config.Filesystem.ReadDir(p)
-	filter := config.GenFilter
-	if filter != nil && err != nil {
+	preProcessor := config.PreProcessor
+	if preProcessor != nil && err != nil {
 		var action FilterAction
-		var dummyMapped T
-		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err, dummyMapped)
+		_, action, err = preProcessor(p, NewAnyDirEntry(config.Filesystem, p), err)
 		switch action {
 		case FilterSkipDir:
 			return &Dir[T]{p, []DirEntry[T]{}, err}
@@ -107,12 +106,10 @@ func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	dirs := make([]DirEntry[T], 0, len(ents))
 	for _, ent := range ents {
 		var mapped T
-		if config.Mapper != nil {
-			mapped, err = config.Mapper(p, ent, err)
-		}
-		if filter != nil {
+		if preProcessor != nil {
 			var action FilterAction
-			action, nerr := filter(p.Append(ent.Name()), ent, err, mapped)
+			var nerr error
+			mapped, action, nerr = preProcessor(p.Append(ent.Name()), ent, err)
 			err = errors.Join(err, nerr)
 			switch action {
 			case FilterSkipDir:
@@ -205,13 +202,26 @@ func (r *AnyDirEntry) Name() string {
 
 // FilterDirSymLinks is a filter function that can be used to skip symbolic links to directories.
 // If the entry is a directory and a symbolic link, it will be skipped.
-func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (FilterAction, error) {
+func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (Void, FilterAction, error) {
 	if ent.IsDir() {
 		if info, err := ent.Info(); err == nil {
 			if info.Mode()&fs.ModeSymlink != 0 {
-				return FilterSkip, errIn
+				return Nil, FilterSkip, errIn
 			}
 		}
 	}
-	return FilterAccept, errIn
+	return Nil, FilterAccept, errIn
+}
+
+func ChainPreprocessors[T any](fns ...PreProcessFn[T]) PreProcessFn[T] {
+	return func(p path.RootedPath, ent os.DirEntry, errIn error) (value T, action FilterAction, err error) {
+		err = errIn
+		for _, fn := range fns {
+			value, action, err = fn(p, ent, err)
+			if action != FilterAccept {
+				break
+			}
+		}
+		return
+	}
 }

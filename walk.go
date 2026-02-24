@@ -2,6 +2,7 @@ package pwalk
 
 import (
 	"io/fs"
+	"os"
 
 	"github.com/robdavid/pwalk/pkgs/assemble"
 	"github.com/robdavid/pwalk/pkgs/path"
@@ -25,13 +26,14 @@ type WalkFn = assemble.WalkFn
 
 type MappedWalkFn[T any] = assemble.MappedWalkFn[T]
 
-// Filter is a function that is called with each path and directory entry as
-// directories are being read, and can return a value to determine whether or not to
-// include a given entry. If an error is encountered while reading a directory,
-// the filter will be called with that directory path twice. The first time as
-// it is being read from the parent directory, and always with an nil error. The
-// second time with the same path and the error encountered while reading it.
-// There are three possible return values from the filter function:
+// FilterFn is the type of a function that can be optionally called with each
+// path and directory entry as directories are being read, and can return a
+// value to determine whether or not to include a given entry. If an error is
+// encountered while reading a directory, the filter will be called with that
+// directory path twice. The first time as it is being read from the parent
+// directory, and always with an nil error. The second time with the same path
+// and the error encountered while reading it. There are three possible return
+// values from the filter function:
 //   - FilterAccept: The entry is included; normal behavior.
 //   - FilterSkip: The entry is not included and it's name will not appear in final results.
 //   - FilterSkipDir: Typically the entry's parent directory will be included, but will appear empty,
@@ -41,14 +43,13 @@ type MappedWalkFn[T any] = assemble.MappedWalkFn[T]
 // There is also an error return. This error is ultimately passed through to the
 // error parameter of the [WalkFn] function.
 //
-// This function is called concurrently in multiple goroutines as
-// directories are being read, so it should be thread-safe.
-type Filter = walk.Filter
+// This function is called concurrently in multiple goroutines as directories
+// are being read, so it should be thread-safe.
+type FilterFn = walk.FilterFn
+
 type FilterAction = walk.FilterAction
 
-type GenFilter[T any] = walk.GenFilter[T]
-
-type MapFn[T any] = walk.MapFn[T]
+type PreProcessFn[T any] = walk.PreProcessFn[T]
 
 func runWalk[T any](config *walk.WalkConfig[T], p path.RootedPath, ass *assemble.Assembly[T]) {
 	d := walk.Read(config, p)
@@ -68,12 +69,29 @@ func toMappedWalkFn(fn WalkFn) MappedWalkFn[walk.Void] {
 	}
 }
 
-func toMappedFilterFn(fn Filter) GenFilter[walk.Void] {
-	if fn == nil {
-		return nil
-	}
-	return func(p path.RootedPath, ent fs.DirEntry, err error, void walk.Void) (FilterAction, error) {
-		return fn(p, ent, err)
+func chainFilter[T any](filter FilterFn, preProcessor PreProcessFn[T]) PreProcessFn[T] {
+	if filter == nil {
+		return preProcessor
+	} else if preProcessor == nil {
+		return func(pth path.RootedPath, ent os.DirEntry, err error) (T, FilterAction, error) {
+			var zero T
+			if pth.IsRoot() {
+				return zero, walk.FilterAccept, nil
+			}
+			action, rerr := filter(pth, ent, err)
+			return zero, action, rerr
+		}
+	} else {
+		return func(pth path.RootedPath, ent os.DirEntry, err error) (T, FilterAction, error) {
+			if !pth.IsRoot() {
+				action, rerr := filter(pth, ent, err)
+				if action != walk.FilterAccept {
+					var zero T
+					return zero, action, rerr
+				}
+			}
+			return preProcessor(pth, ent, err)
+		}
 	}
 }
 
@@ -98,14 +116,7 @@ func toMappedFilterFn(fn Filter) GenFilter[walk.Void] {
 // If no config options are provided, Walk uses an internal workpool with thread count
 // equal to the system's CPU count.
 func Walk(root string, fn WalkFn, config ...Config) {
-	configData := walk.NewConfigData()
-	for _, c := range config {
-		c(configData)
-	}
-	GenWalk(root, toMappedWalkFn(fn),
-		GenConfigData[walk.Void]{GenFilter: toMappedFilterFn(configData.Filter)},
-		func(c *walk.ConfigData) { *c = *configData },
-	)
+	GenWalk(root, nil, toMappedWalkFn(fn), config...)
 }
 
 // WalkAndMap traverses the directory tree rooted at the given path, optionally
@@ -134,7 +145,7 @@ func Walk(root string, fn WalkFn, config ...Config) {
 // thread count equal to the system's CPU count. The mapping function (if
 // provided) is called once per directory and its result is passed to fn along
 // with all contained files and subdirectories.
-func GenWalk[T any](root string, fn MappedWalkFn[T], gconf GenConfigData[T], config ...Config) {
+func GenWalk[T any](root string, pre PreProcessFn[T], fn MappedWalkFn[T], config ...Config) {
 	configData := walk.NewConfigData()
 	for _, c := range config {
 		c(configData)
@@ -144,7 +155,12 @@ func GenWalk[T any](root string, fn MappedWalkFn[T], gconf GenConfigData[T], con
 		defer wp.Stop()
 		configData.Workpool = wp
 	}
-	walkConfig := walk.WalkConfig[T]{ConfigData: *configData, GenConfigData: gconf}
+	walkConfig := walk.WalkConfig[T]{
+		ConfigData: *configData,
+		GenConfigData: walk.GenConfigData[T]{
+			PreProcessor: chainFilter(configData.Filter, pre),
+		},
+	}
 	ass := assemble.New[T](&walkConfig, fn)
 	defer ass.Close()
 

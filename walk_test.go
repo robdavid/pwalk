@@ -22,22 +22,25 @@ func TestWalk(t *testing.T) {
 	count := 0
 	wp := workpool.New(12, 0)
 	var size int64
-	pwalk.Walk(".", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
-		require.NoError(t, err)
-		inf, err := dirent.Info()
-		require.NoError(t, err)
-		fmt.Println(pth, inf.Size())
-		size += inf.Size()
-		count++
-	},
-		walk.ConfigWorkpool(wp),
-		walk.ConfigFilter(func(p path.RootedPath, e fs.DirEntry, err error) (walk.FilterAction, error) {
-			if p.Top() == ".git" {
-				return walk.FilterSkip, nil
+
+	pwalk.GenWalk[walk.Void](".",
+		func(p path.RootedPath, e fs.DirEntry, err error) (walk.Void, walk.FilterAction, error) {
+			if p.Len() > 0 && p.Top() == ".git" {
+				return walk.Nil, walk.FilterSkip, nil
 			} else {
-				return walk.FilterAccept, err
+				return walk.Nil, walk.FilterAccept, err
 			}
-		}))
+		},
+		func(pth path.RootedPath, dirent fs.DirEntry, err error, void walk.Void) {
+			require.NoError(t, err)
+			inf, err := dirent.Info()
+			require.NoError(t, err)
+			fmt.Println(pth, inf.Size())
+			size += inf.Size()
+			count++
+		},
+		walk.ConfigWorkpool(wp),
+	)
 	wp.Stop()
 	assert.Greater(t, wp.MaxActive, 0)
 	assert.Greater(t, count, 30)
@@ -285,7 +288,10 @@ func TestParMapTree(t *testing.T) {
 	prevPath := ""
 	start := time.Now()
 	pwalk.GenWalk[fs.FileInfo]("",
-
+		func(pth path.RootedPath, dirent fs.DirEntry, err error) (fs.FileInfo, walk.FilterAction, error) {
+			info, err := dirent.Info()
+			return info, walk.FilterAccept, err
+		},
 		func(pth path.RootedPath, dirent fs.DirEntry, err error, info fs.FileInfo) {
 			require.NoError(t, err)
 			pthString := pth.String()
@@ -299,11 +305,6 @@ func TestParMapTree(t *testing.T) {
 			}
 			assert.Equal(t, dirent.Type(), info.Mode())
 		},
-		pwalk.GenConfigData[fs.FileInfo]{
-			Mapper: func(pth path.RootedPath, dirent fs.DirEntry, err error) (fs.FileInfo, error) {
-				return dirent.Info()
-			},
-		},
 		walk.ConfigWorkpool(wp), walk.ConfigFilesystem(tree),
 	)
 	wp.Stop()
@@ -315,13 +316,13 @@ func TestParMapTree(t *testing.T) {
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
-func filterCount(t *testing.T, counter *atomic.Int32) walk.Filter {
-	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
+func filterCount(t *testing.T, counter *atomic.Int32) walk.PreProcessFn[walk.Void] {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.Void, walk.FilterAction, error) {
 		if err != nil {
-			return walk.FilterSkipDir, err
+			return walk.Nil, walk.FilterSkipDir, err
 		}
 		counter.Add(1)
-		return walk.FilterAccept, nil
+		return walk.Nil, walk.FilterAccept, nil
 	}
 }
 
@@ -344,33 +345,33 @@ func TestParTreeNoSymlinks(t *testing.T) {
 	var entries atomic.Int32
 	prevPath := ""
 	start := time.Now()
-	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
-		require.NoError(t, err)
-		pthString := pth.String()
-		if prevPath != "" {
-			require.Greater(t, pthString, prevPath)
-		}
-		prevPath = pthString
-		if info, err := dirent.Info(); err == nil {
-			size += info.Size()
-			count++
-		}
-	},
+	pwalk.GenWalk("",
+		walk.ChainPreprocessors(walk.FilterDirSymLinks, filterCount(t, &entries)),
+		func(pth path.RootedPath, dirent fs.DirEntry, err error, void walk.Void) {
+			require.NoError(t, err)
+			pthString := pth.String()
+			if prevPath != "" {
+				require.Greater(t, pthString, prevPath)
+			}
+			prevPath = pthString
+			if info, err := dirent.Info(); err == nil {
+				size += info.Size()
+				count++
+			}
+		},
 		walk.ConfigWorkpool(wp),
 		walk.ConfigFilesystem(tree),
-		walk.ConfigFilter(walk.FilterDirSymLinks),
-		walk.ConfigFilter(filterCount(t, &entries)),
 	)
 	wp.Stop()
 	end := time.Now()
 	assert.Less(t, count, max)
-	assert.Equal(t, int(entries.Load())+1, count)
+	assert.Equal(t, int(entries.Load()), count)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
-func filterErrs(t *testing.T, counter, skipped *atomic.Int32) walk.Filter {
+func filterErrs(t *testing.T, counter, skipped *atomic.Int32) walk.FilterFn {
 	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
 		if err != nil {
 			skipped.Add(1)
@@ -425,7 +426,7 @@ func TestParTreeWithErrs(t *testing.T) {
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
-func filterErrsSkipdir(t *testing.T, counter, skipped *atomic.Int32) walk.Filter {
+func filterErrsSkipdir(t *testing.T, counter, skipped *atomic.Int32) walk.FilterFn {
 	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
 		if err != nil {
 			skipped.Add(1)

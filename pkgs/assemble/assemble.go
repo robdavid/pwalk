@@ -19,20 +19,20 @@ type WalkFn = func(path.RootedPath, fs.DirEntry, error)
 type MappedWalkFn[T any] = func(path.RootedPath, fs.DirEntry, error, T)
 
 type Assembly[T any] struct {
-	root      *walk.Dir[T]
-	readState Location[T]
-	stream    chan *walk.Dir[T]
-	wg        sync.WaitGroup
-	config    *walk.ConfigData
-	WalkFn    MappedWalkFn[T]
-	MapFn     walk.MapFn[T]
-	Log       *slog.Logger
+	root         *walk.Dir[T]
+	readState    Location[T]
+	stream       chan *walk.Dir[T]
+	wg           sync.WaitGroup
+	config       *walk.ConfigData
+	WalkFn       MappedWalkFn[T]
+	PreProcessor walk.PreProcessFn[T]
+	Log          *slog.Logger
 }
 
 func New[T any](config *walk.WalkConfig[T], walkFn MappedWalkFn[T]) *Assembly[T] {
 	as := &Assembly[T]{
-		MapFn:  config.Mapper,
-		WalkFn: walkFn,
+		PreProcessor: config.PreProcessor,
+		WalkFn:       walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
@@ -70,8 +70,8 @@ func (as *Assembly[T]) Next() (fnext path.RootedPath, next walk.DirEntry[T], dir
 		as.readState = as.readState.Push(CoOrd[T]{Dir: as.root, Index: 0})
 		dirent := walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)
 		var mapped T
-		if as.MapFn != nil {
-			mapped, direrr = as.MapFn(fnext, dirent, direrr)
+		if as.PreProcessor != nil {
+			mapped, _, direrr = as.PreProcessor(fnext, dirent, direrr)
 		}
 		next = walk.MakeDirEntryDir[T](dirent, mapped)
 		fnext = as.root.Path
