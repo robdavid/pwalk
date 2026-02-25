@@ -19,26 +19,26 @@ type WalkFn = func(path.RootedPath, fs.DirEntry, error)
 type MappedWalkFn[T any] = func(path.RootedPath, fs.DirEntry, error, T)
 
 type Assembly[T any] struct {
-	root         *walk.Dir[T]
-	readState    Location[T]
-	stream       chan *walk.Dir[T]
-	wg           sync.WaitGroup
-	config       *walk.ConfigData
-	WalkFn       MappedWalkFn[T]
-	PreProcessor walk.PreProcessFn[T]
-	Log          *slog.Logger
+	root       *walk.Dir[T]
+	rootMapped T
+	readState  Location[T]
+	stream     chan *walk.Dir[T]
+	wg         sync.WaitGroup
+	config     *walk.ConfigData
+	WalkFn     MappedWalkFn[T]
+	Log        *slog.Logger
 }
 
-func New[T any](config *walk.WalkConfig[T], walkFn MappedWalkFn[T]) *Assembly[T] {
+func New[T any](config *walk.WalkConfig[T], rootMapped T, walkFn MappedWalkFn[T]) *Assembly[T] {
 	as := &Assembly[T]{
-		PreProcessor: config.PreProcessor,
-		WalkFn:       walkFn,
+		WalkFn: walkFn,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     slog.LevelError,
 			AddSource: false,
 		})),
-		config: &config.ConfigData,
-		stream: make(chan *walk.Dir[T]),
+		rootMapped: rootMapped,
+		config:     &config.ConfigData,
+		stream:     make(chan *walk.Dir[T]),
 	}
 	as.wg.Add(1)
 	go as.process()
@@ -65,15 +65,17 @@ func (as *Assembly[T]) Add(d *walk.Dir[T]) {
 	}
 }
 
+// Next returns the next entry in the sorted sequence of directory entries.
+// Returned are the path and the directory entry, along with any associated
+// error. Also returned are two flags.
+//   - more - If false then there are no further entries. No entry data is returned.
+//   - blocked - If true then the next entry has yet to be inserted into the [Assembly]. Subsequent calls to [Assembly.Add]
+//     may then provide the required entry in which case the flag will be cleared on the next call to this method.
 func (as *Assembly[T]) Next() (fnext path.RootedPath, next walk.DirEntry[T], direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
 		as.readState = as.readState.Push(CoOrd[T]{Dir: as.root, Index: 0})
 		dirent := walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)
-		var mapped T
-		if as.PreProcessor != nil {
-			mapped, _, direrr = as.PreProcessor(fnext, dirent, direrr)
-		}
-		next = walk.MakeDirEntryDir[T](dirent, mapped)
+		next = walk.MakeDirEntryDir(dirent, as.rootMapped)
 		fnext = as.root.Path
 		direrr = errors.Join(direrr, as.root.Error)
 		more = true

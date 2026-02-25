@@ -161,12 +161,35 @@ func GenWalk[T any](root string, pre PreProcessFn[T], fn MappedWalkFn[T], config
 			PreProcessor: chainFilter(configData.Filter, pre),
 		},
 	}
-	ass := assemble.New[T](&walkConfig, fn)
+
+	rootPath := path.NewAt(root)
+	rootEnt := walk.NewRootDirEntry(configData.Filesystem, rootPath)
+
+	var mp T
+	var action walk.FilterAction
+	var err error
+
+	if pre != nil {
+		mp, action, err = pre(rootPath, rootEnt, nil)
+	}
+	ass := assemble.New(&walkConfig, mp, fn)
 	defer ass.Close()
 
-	configData.Workpool.Run(func() {
-		runWalk(&walkConfig, path.NewAt(root), ass)
-	})
-	configData.Workpool.Wait()
-	ass.Wait()
+	switch action {
+	case walk.FilterSkip:
+		return
+	case walk.FilterSkipDir:
+		emptyDir := walk.Dir[T]{
+			Path:    rootPath,
+			Entries: []walk.DirEntry[T]{},
+			Error:   err,
+		}
+		ass.Add(&emptyDir)
+	default:
+		configData.Workpool.Run(func() {
+			runWalk(&walkConfig, path.NewAt(root), ass)
+		})
+		configData.Workpool.Wait()
+		ass.Wait()
+	}
 }
