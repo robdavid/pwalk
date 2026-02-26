@@ -316,13 +316,13 @@ func TestParMapTree(t *testing.T) {
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
-func filterCount(t *testing.T, counter *atomic.Int32) walk.PreProcessFn[walk.Void] {
-	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.Void, walk.FilterAction, error) {
+func filterCount(t *testing.T, counter *atomic.Int32) walk.FilterFn {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
 		if err != nil {
-			return walk.Nil, walk.FilterSkipDir, err
+			return walk.FilterSkipDir, err
 		}
 		counter.Add(1)
-		return walk.Nil, walk.FilterAccept, nil
+		return walk.FilterAccept, nil
 	}
 }
 
@@ -345,9 +345,8 @@ func TestParTreeNoSymlinks(t *testing.T) {
 	var entries atomic.Int32
 	prevPath := ""
 	start := time.Now()
-	pwalk.GenWalk("",
-		walk.ChainPreprocessors(walk.FilterDirSymLinks, filterCount(t, &entries)),
-		func(pth path.RootedPath, dirent fs.DirEntry, err error, void walk.Void) {
+	pwalk.Walk("",
+		func(pth path.RootedPath, dirent fs.DirEntry, err error) {
 			require.NoError(t, err)
 			pthString := pth.String()
 			if prevPath != "" {
@@ -361,6 +360,8 @@ func TestParTreeNoSymlinks(t *testing.T) {
 		},
 		walk.ConfigWorkpool(wp),
 		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(walk.FilterDirSymLinks),
+		walk.ConfigFilter(filterCount(t, &entries)),
 	)
 	wp.Stop()
 	end := time.Now()
@@ -371,14 +372,17 @@ func TestParTreeNoSymlinks(t *testing.T) {
 	assert.Less(t, end.Sub(start), sequentialTime)
 }
 
+// filterErrs is a test filter that rejects erroring entries. Error and success counters
+// are kept.
 func filterErrs(t *testing.T, counter, skipped *atomic.Int32) walk.FilterFn {
 	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
 		if err != nil {
 			skipped.Add(1)
 			return walk.FilterSkip, err
+		} else {
+			counter.Add(1)
+			return walk.FilterAccept, nil
 		}
-		counter.Add(1)
-		return walk.FilterAccept, nil
 	}
 }
 
@@ -420,7 +424,7 @@ func TestParTreeWithErrs(t *testing.T) {
 	// prior to error state when an attempt is made to read that directory.
 	// Therefore removing their number from the total count gives the entry
 	// count the walk function observes.
-	assert.Equal(t, int(entries.Load()-skipped.Load())+1, count)
+	assert.Equal(t, int(entries.Load()-skipped.Load()), count)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
@@ -474,9 +478,73 @@ func TestParTreeWithErrsSkipdir(t *testing.T) {
 	wp.Stop()
 	end := time.Now()
 	assert.Less(t, count, max)
-	assert.Equal(t, int(entries.Load())+1, count)
+	assert.Equal(t, int(entries.Load()), count)
 	assert.Equal(t, int(skipped.Load()), errCount)
 	assert.Greater(t, wp.MaxActive, 1)
 	sequentialTime := readDelay * time.Duration(count)
 	assert.Less(t, end.Sub(start), sequentialTime)
+}
+
+func filterRoot(t *testing.T, action walk.FilterAction) walk.FilterFn {
+	return func(rp path.RootedPath, de os.DirEntry, err error) (walk.FilterAction, error) {
+		if rp.IsRoot() {
+			return action, nil
+		}
+		return walk.FilterAccept, err
+	}
+}
+
+func TestParTreeWithFilteredRoot(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree, max := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build: []buildInfo{
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | 0777, repeat: 1},
+			{mode: 0777, repeat: 3},
+		},
+	})
+	wp := workpool.New(12, 0)
+	var count int
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
+		count++
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(filterRoot(t, walk.FilterSkip)),
+	)
+	wp.Stop()
+	assert.Less(t, count, max)
+	assert.Equal(t, 0, count)
+}
+
+func TestParTreeWithFilteredRootEntries(t *testing.T) {
+	readDelay := time.Millisecond * 10
+	tree, max := BuildTree(buildConfig{
+		breadth:   15,
+		depth:     5,
+		readDelay: readDelay,
+		build: []buildInfo{
+			{mode: 0777, repeat: 3},
+			{mode: os.ModeDir | 0777, repeat: 1},
+			{mode: 0777, repeat: 3},
+		},
+	})
+	wp := workpool.New(12, 0)
+	var count int
+	pwalk.Walk("", func(pth path.RootedPath, dirent fs.DirEntry, err error) {
+		if count == 0 {
+			assert.True(t, pth.IsRoot())
+		}
+		count++
+	},
+		walk.ConfigWorkpool(wp),
+		walk.ConfigFilesystem(tree),
+		walk.ConfigFilter(filterRoot(t, walk.FilterSkipDir)),
+	)
+	wp.Stop()
+	assert.Less(t, count, max)
+	assert.Equal(t, 1, count)
 }

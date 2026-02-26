@@ -75,20 +75,15 @@ func chainFilter[T any](filter FilterFn, preProcessor PreProcessFn[T]) PreProces
 	} else if preProcessor == nil {
 		return func(pth path.RootedPath, ent os.DirEntry, err error) (T, FilterAction, error) {
 			var zero T
-			if pth.IsRoot() {
-				return zero, walk.FilterAccept, nil
-			}
 			action, rerr := filter(pth, ent, err)
 			return zero, action, rerr
 		}
 	} else {
 		return func(pth path.RootedPath, ent os.DirEntry, err error) (T, FilterAction, error) {
-			if !pth.IsRoot() {
-				action, rerr := filter(pth, ent, err)
-				if action != walk.FilterAccept {
-					var zero T
-					return zero, action, rerr
-				}
+			action, rerr := filter(pth, ent, err)
+			if action != walk.FilterAccept {
+				var zero T
+				return zero, action, rerr
 			}
 			return preProcessor(pth, ent, err)
 		}
@@ -169,8 +164,8 @@ func GenWalk[T any](root string, pre PreProcessFn[T], fn MappedWalkFn[T], config
 	var action walk.FilterAction
 	var err error
 
-	if pre != nil {
-		mp, action, err = pre(rootPath, rootEnt, nil)
+	if walkConfig.PreProcessor != nil {
+		mp, action, err = walkConfig.PreProcessor(rootPath, rootEnt, nil)
 	}
 	ass := assemble.New(&walkConfig, mp, fn)
 	defer ass.Close()
@@ -184,7 +179,8 @@ func GenWalk[T any](root string, pre PreProcessFn[T], fn MappedWalkFn[T], config
 			Entries: []walk.DirEntry[T]{},
 			Error:   err,
 		}
-		ass.Add(&emptyDir)
+		ass.Sink(&emptyDir)
+		ass.Wait()
 	default:
 		configData.Workpool.Run(func() {
 			runWalk(&walkConfig, path.NewAt(root), ass)

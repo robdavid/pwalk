@@ -202,15 +202,15 @@ func (r *AnyDirEntry) Name() string {
 
 // FilterDirSymLinks is a filter function that can be used to skip symbolic links to directories.
 // If the entry is a directory and a symbolic link, it will be skipped.
-func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (Void, FilterAction, error) {
+func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (FilterAction, error) {
 	if ent.IsDir() {
 		if info, err := ent.Info(); err == nil {
 			if info.Mode()&fs.ModeSymlink != 0 {
-				return Nil, FilterSkip, errIn
+				return FilterSkip, errIn
 			}
 		}
 	}
-	return Nil, FilterAccept, errIn
+	return FilterAccept, errIn
 }
 
 func ChainPreprocessors[T any](fns ...PreProcessFn[T]) PreProcessFn[T] {

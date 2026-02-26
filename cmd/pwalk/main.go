@@ -28,7 +28,7 @@ func main() {
 	for _, file := range flag.Args() {
 		count := 0
 		var prevPath path.RootedPath
-		fn := func(fpath path.RootedPath, ent fs.DirEntry, err error, void walk.Void) {
+		fn := func(fpath path.RootedPath, ent fs.DirEntry, err error) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
 			} else {
@@ -51,11 +51,11 @@ func main() {
 		}
 		wp := workpool.New(threads, 0)
 		defer wp.Stop()
-		var filter walk.PreProcessFn[walk.Void]
+		var filter walk.FilterFn
 		if !symlinks {
 			filter = walk.FilterDirSymLinks
 		}
-		pwalk.GenWalk(file, filter, fn, walk.ConfigWorkpool(wp))
+		pwalk.Walk(file, fn, walk.ConfigWorkpool(wp), walk.ConfigFilter(filter))
 		fmt.Printf("Total: %d\n", count)
 		fmt.Printf("Max parallelism: %d\n", wp.MaxActive)
 		if usage {
