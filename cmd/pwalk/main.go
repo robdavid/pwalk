@@ -27,8 +27,8 @@ func main() {
 	flag.Parse()
 	for _, file := range flag.Args() {
 		count := 0
-		var prevPath path.RootedPath
-		fn := func(fpath path.RootedPath, ent fs.DirEntry, err error) {
+		prevPath := path.New(file)
+		fn := func(fpath *path.Path, ent fs.DirEntry, err error) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
 			} else {
@@ -38,7 +38,7 @@ func main() {
 				prevPath = fpath
 				count++
 				if !quiet {
-					fmt.Println(fpath)
+					fmt.Println(fpath.String())
 				}
 				if usage {
 					if info, err := ent.Info(); err != nil {
@@ -64,7 +64,7 @@ func main() {
 	}
 }
 
-func cmpPaths(a, b path.RootedPath) int {
+func cmpPaths(a, b *path.Path) int {
 	var i int
 	if c := strings.Compare(a.Root(), b.Root()); c != 0 {
 		return c

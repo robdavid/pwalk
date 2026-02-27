@@ -37,7 +37,7 @@ func (t testFileInfo) ModTime() time.Time { return time.Time{} }
 func (t testFileInfo) IsDir() bool        { return t.isDir }
 func (t testFileInfo) Sys() any           { return nil }
 
-func createTestDir(p path.RootedPath, entries []testDirEntry, err error) *walk.Dir[walk.Void] {
+func createTestDir(p *path.Path, entries []testDirEntry, err error) *walk.Dir[walk.Void] {
 	// Sort entries by name for binary search
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
@@ -58,7 +58,7 @@ func TestAddAndNextSimple(t *testing.T) {
 	as := assemble.New[walk.Void](walk.NewWalkConfig[walk.Void](), walk.Nil, nil)
 
 	// Create root dir
-	rootPath := path.NewAt(rootPathStr)
+	rootPath := path.New(rootPathStr)
 	rootDir := createTestDir(rootPath, []testDirEntry{
 		{"file1.txt", false, 100},
 		{"subdir", true, 0},
@@ -104,7 +104,7 @@ func TestAddAndNextSimple(t *testing.T) {
 func TestAddOutOfOrder(t *testing.T) {
 	as := assemble.New[walk.Void](walk.NewWalkConfig[walk.Void](), walk.Nil, nil)
 
-	rootPath := path.NewAt(rootPathStr)
+	rootPath := path.New(rootPathStr)
 
 	// Add root with 'a'
 	rootDir := createTestDir(rootPath, []testDirEntry{
@@ -207,7 +207,7 @@ func TestAddOutOfOrder(t *testing.T) {
 func TestNextTraversalOrder(t *testing.T) {
 	as := assemble.New[walk.Void](walk.NewWalkConfig[walk.Void](), walk.Nil, nil)
 
-	rootPath := path.NewAt(rootPathStr)
+	rootPath := path.New(rootPathStr)
 
 	// Create a more complex tree
 	rootDir := createTestDir(rootPath, []testDirEntry{
@@ -267,7 +267,7 @@ func TestNextTraversalOrder(t *testing.T) {
 func TestNextWithErrors(t *testing.T) {
 	as := assemble.New[walk.Void](walk.NewWalkConfig[walk.Void](), walk.Nil, nil)
 
-	rootPath := path.NewAt(rootPathStr)
+	rootPath := path.New(rootPathStr)
 	rootDir := createTestDir(rootPath, []testDirEntry{
 		{"baddir", true, 0},
 		{"goodfile.txt", false, 100},
@@ -313,7 +313,7 @@ func TestEntryIndex(t *testing.T) {
 		{"b", false, 0},
 		{"c", true, 0},
 	}
-	d := createTestDir(path.NewAt("/test"), entries, nil)
+	d := createTestDir(path.New("/test"), entries, nil)
 
 	assert.Equal(t, 0, d.EntryIndex("a"))
 	assert.Equal(t, 1, d.EntryIndex("b"))

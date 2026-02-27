@@ -15,7 +15,7 @@ Key components (files to inspect)
  - `pkgs/workpool`: Worker pool that accepts `Run(func())` and maintains worker goroutines. See `workpool.go` for lifecycle (`New`, `Run`, `Stop`, `Wait`).
  - `pkgs/assemble`: Receives `*dir.Dir` values and builds an in-memory assembly that `Next()` traverses in-order. Check `assemble.go` and `traverse.go` for `Add`, `Next`, and the `Location` type.
  - `pkgs/dir`: Wraps `fs.DirEntry` with directory-child links and implements `EntryIndex` used by `assemble` to attach children.
- - `pkgs/path`: Immutable path helpers: `Path` and `RootedPath` (use `Append()` not string joins).
+ - `pkgs/path`: Immutable path helpers: `Path` (use `Append()` not string joins).
  - `walk.go` / `cmd/pwalk/main.go`: shows how components compose: walker reads directories with `dir.Read`, pushes into an `assemble.Assembly`, and uses a `workpool` to parallelize directory reads.
 
 Developer workflows (commands)
@@ -25,7 +25,7 @@ Developer workflows (commands)
  - Debug logging: set the `Log` field on `workpool.Workpool` or `assemble.Assembly` to a `slog` logger at `slog.LevelDebug`.
 
 Project-specific conventions / patterns
- - Immutable Path objects: always use `RootedPath.Append()` to construct subpaths.
+ - Immutable Path objects: always use `Path.Append()` to construct subpaths.
  - Directory entries in `dir.Dir.Entries` are sorted lexicographically; test helpers must sort entries before creating synthetic `dir.Dir` objects (this repo uses `slices.BinarySearchFunc` in `EntryIndex`).
  - `assemble.Assembly` expects callers to stream `*dir.Dir` items via `Sink()`; `Add()` is internal to assembly threads but tests may call `Add()` directly when simulating arrival of directory reads.
  - Logging fields: many structs include `Log *slog.Logger` — default level is `Error`. Tests often set `Log` to discard output.
