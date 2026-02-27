@@ -37,7 +37,7 @@ func (t testFileInfo) ModTime() time.Time { return time.Time{} }
 func (t testFileInfo) IsDir() bool        { return t.isDir }
 func (t testFileInfo) Sys() any           { return nil }
 
-func createTestDir(p *path.Path, entries []testDirEntry, err error) *walk.Dir[walk.Void] {
+func createTestDir(p path.Path, entries []testDirEntry, err error) *walk.Dir[walk.Void] {
 	// Sort entries by name for binary search
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name

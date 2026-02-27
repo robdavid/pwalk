@@ -28,7 +28,7 @@ func main() {
 	for _, file := range flag.Args() {
 		count := 0
 		prevPath := path.New(file)
-		fn := func(fpath *path.Path, ent fs.DirEntry, err error) {
+		fn := func(fpath path.Path, ent fs.DirEntry, err error) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s\n", fpath, err)
 			} else {
@@ -64,7 +64,7 @@ func main() {
 	}
 }
 
-func cmpPaths(a, b *path.Path) int {
+func cmpPaths(a, b path.Path) int {
 	var i int
 	if c := strings.Compare(a.Root(), b.Root()); c != 0 {
 		return c

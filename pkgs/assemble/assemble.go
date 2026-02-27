@@ -15,8 +15,8 @@ import (
 // WalkFn is a function that is called with each path encountered when
 // walking the directory tree, along with any error code and directory
 // entry details.
-type WalkFn = func(*path.Path, fs.DirEntry, error)
-type MappedWalkFn[T any] = func(*path.Path, fs.DirEntry, error, T)
+type WalkFn = func(path.Path, fs.DirEntry, error)
+type MappedWalkFn[T any] = func(path.Path, fs.DirEntry, error, T)
 
 type Assembly[T any] struct {
 	root       *walk.Dir[T]
@@ -71,7 +71,7 @@ func (as *Assembly[T]) Add(d *walk.Dir[T]) {
 //   - more - If false then there are no further entries. No entry data is returned.
 //   - blocked - If true then the next entry has yet to be inserted into the [Assembly]. Subsequent calls to [Assembly.Add]
 //     may then provide the required entry in which case the flag will be cleared on the next call to this method.
-func (as *Assembly[T]) Next() (fnext *path.Path, next walk.DirEntry[T], direrr error, more bool, blocked bool) {
+func (as *Assembly[T]) Next() (fnext path.Path, next walk.DirEntry[T], direrr error, more bool, blocked bool) {
 	if len(as.readState) == 0 {
 		as.readState = as.readState.Push(CoOrd[T]{Dir: as.root, Index: 0})
 		dirent := walk.NewRootDirEntry(as.config.Filesystem, as.root.Path)

@@ -31,7 +31,7 @@ Flags (from `cmd/pwalk/main.go`):
 
 Use the library by calling `pwalk.Walk(root, fn, opts...)`.
 - `root` is a string root path
-- `fn` is an `assemble.WalkFn` (signature: `func(*path.Path, error, fs.DirEntry)`) 
+- `fn` is an `assemble.WalkFn` (signature: `func(path.Path, error, fs.DirEntry)`) 
 - `opts` is an optional variadic list of configuration functions (for example to supply a custom workpool or change thread counts). If you don't supply any options, `pwalk` will create a suitable workpool internally.
 
 Simple example (uses the default internal workpool):
@@ -48,7 +48,7 @@ import (
 )
 
 func main() {
-    fn := func(p *path.Path, err error, ent fs.DirEntry) {
+    fn := func(p path.Path, err error, ent fs.DirEntry) {
         if err != nil {
             fmt.Printf("%s: %v\n", p, err)
             return

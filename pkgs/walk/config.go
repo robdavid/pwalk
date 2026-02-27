@@ -53,7 +53,7 @@ func ConfigFilter(f FilterFn) func(*ConfigData) {
 		if prev := config.Filter; prev == nil {
 			config.Filter = f
 		} else {
-			config.Filter = func(p *path.Path, ent os.DirEntry, err error) (FilterAction, error) {
+			config.Filter = func(p path.Path, ent os.DirEntry, err error) (FilterAction, error) {
 				if skip, err := prev(p, ent, err); skip == FilterAccept {
 					return f(p, ent, err)
 				} else {

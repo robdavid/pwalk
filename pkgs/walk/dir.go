@@ -65,7 +65,7 @@ func (d DirEntryDir[T]) WithChild(c *Dir[T]) DirEntry[T] {
 // Dir contains the results from reading a directory, including
 // the directory path, the entries read and any error encountered.
 type Dir[T any] struct {
-	Path    *path.Path
+	Path    path.Path
 	Entries []DirEntry[T]
 	Error   error
 }
@@ -86,11 +86,11 @@ const (
 	FilterSkipDir
 )
 
-type PreProcessFn[T any] = func(*path.Path, os.DirEntry, error) (T, FilterAction, error)
-type FilterFn = func(*path.Path, os.DirEntry, error) (FilterAction, error)
+type PreProcessFn[T any] = func(path.Path, os.DirEntry, error) (T, FilterAction, error)
+type FilterFn = func(path.Path, os.DirEntry, error) (FilterAction, error)
 
 // Read reads the directory at p, and returns a pointer to a [Dir] object
-func Read[T any](config *WalkConfig[T], p *path.Path) *Dir[T] {
+func Read[T any](config *WalkConfig[T], p path.Path) *Dir[T] {
 	ents, err := config.Filesystem.ReadDir(p)
 	preProcessor := config.PreProcessor
 	if preProcessor != nil && err != nil {
@@ -140,11 +140,11 @@ func (d *Dir[T]) EntryIndex(name string) int {
 
 type RootDirEntry struct {
 	filesystem Filesystem
-	root       *path.Path
+	root       path.Path
 	info       fs.FileInfo
 }
 
-func NewRootDirEntry(fs Filesystem, root *path.Path) *RootDirEntry {
+func NewRootDirEntry(fs Filesystem, root path.Path) *RootDirEntry {
 	return &RootDirEntry{filesystem: fs, root: root}
 }
 
@@ -188,7 +188,7 @@ type AnyDirEntry struct {
 	RootDirEntry
 }
 
-func NewAnyDirEntry(fs Filesystem, p *path.Path) *AnyDirEntry {
+func NewAnyDirEntry(fs Filesystem, p path.Path) *AnyDirEntry {
 	return &AnyDirEntry{RootDirEntry: RootDirEntry{filesystem: fs, root: p}}
 }
 
@@ -202,7 +202,7 @@ func (r *AnyDirEntry) Name() string {
 
 // FilterDirSymLinks is a filter function that can be used to skip symbolic links to directories.
 // If the entry is a directory and a symbolic link, it will be skipped, unless it is the root.
-func FilterDirSymLinks(p *path.Path, ent os.DirEntry, errIn error) (FilterAction, error) {
+func FilterDirSymLinks(p path.Path, ent os.DirEntry, errIn error) (FilterAction, error) {
 	if ent.IsDir() && !p.IsRoot() {
 		if info, err := ent.Info(); err == nil {
 			if info.Mode()&fs.ModeSymlink != 0 {
@@ -214,7 +214,7 @@ func FilterDirSymLinks(p *path.Path, ent os.DirEntry, errIn error) (FilterAction
 }
 
 func ChainPreprocessors[T any](fns ...PreProcessFn[T]) PreProcessFn[T] {
-	return func(p *path.Path, ent os.DirEntry, errIn error) (value T, action FilterAction, err error) {
+	return func(p path.Path, ent os.DirEntry, errIn error) (value T, action FilterAction, err error) {
 		err = errIn
 		for _, fn := range fns {
 			value, action, err = fn(p, ent, err)

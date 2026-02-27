@@ -66,27 +66,31 @@ func (p pathSlice) absFile(root string) (string, error) {
 
 // Path is a filesystem path rooted at a given directory. A Path
 // is immutable.
-type Path struct {
+type pathInner struct {
 	root    string
 	subPath pathSlice
 	asStr   string
 }
 
+type Path struct {
+	*pathInner
+}
+
 // New returns a [Path] which consists of a number of
 // path elements which comprise a path relative to the provided root
 // path string.
-func New(root string, subdirs ...string) *Path {
-	return &Path{root, new(subdirs...), ""}
+func New(root string, subdirs ...string) Path {
+	return Path{&pathInner{root, new(subdirs...), ""}}
 }
 
 // Append appends a number of path elements to a [Path],
 // returning a new value. The original RootPath is unchanged.
-func (rp *Path) Append(files ...string) *Path {
-	return &Path{rp.root, rp.subPath.append(files...), ""}
+func (rp Path) Append(files ...string) Path {
+	return Path{&pathInner{rp.root, rp.subPath.append(files...), ""}}
 }
 
 // Path returns the entire [Path] as a string.
-func (rp *Path) Path() string {
+func (rp *pathInner) Path() string {
 	if rp.asStr == "" {
 		rp.asStr = rp.subPath.fullPath(rp.root)
 	}
@@ -94,46 +98,46 @@ func (rp *Path) Path() string {
 }
 
 // String returns the entire [Path] as a string. Same as [Path.Path].
-func (rp *Path) String() string {
+func (rp *pathInner) String() string {
 	return rp.Path()
 }
 
 // Sub returns a Path rooted at the first path subdirectory.
-func (rp *Path) Sub() *Path {
+func (rp Path) Sub() Path {
 	if len(rp.subPath) > 0 {
-		return &Path{root: filepath.Join(rp.root, rp.subPath[0]), subPath: rp.subPath[1:]}
+		return Path{&pathInner{root: filepath.Join(rp.root, rp.subPath[0]), subPath: rp.subPath[1:]}}
 	} else {
 		return rp
 	}
 }
 
 // Len returns the number of path elements after the root.
-func (rp *Path) Len() int {
+func (rp *pathInner) Len() int {
 	return len(rp.subPath)
 }
 
 // Root returns the root path string of this Path.
-func (rp *Path) Root() string {
+func (rp *pathInner) Root() string {
 	return rp.root
 }
 
 // Get returns the path element at the given index after the root.
-func (rp *Path) Get(n int) string {
+func (rp *pathInner) Get(n int) string {
 	return rp.subPath[n]
 }
 
 // IsRoot returns true if this path is the root (i.e. there are no path elements
 // after the root).
-func (rp *Path) IsRoot() bool {
+func (rp *pathInner) IsRoot() bool {
 	return len(rp.subPath) == 0
 }
 
 // SubPaths returns an iterator over all path elements after the root
-func (rp *Path) SubPaths() iter.Seq[string] {
+func (rp *pathInner) SubPaths() iter.Seq[string] {
 	return slices.Values(rp.subPath)
 }
 
 // Top returns the first element of the path after the root
-func (rp *Path) Top() string {
+func (rp *pathInner) Top() string {
 	return rp.subPath[0]
 }
