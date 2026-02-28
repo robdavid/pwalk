@@ -13,15 +13,19 @@ type Workpool interface {
 }
 
 type ConfigData struct {
-	Filter     Filter
+	Filter     FilterFn
 	Threads    int
 	Workpool   Workpool
 	Filesystem Filesystem
 }
 
+type GenConfigData[T any] struct {
+	PreProcessor PreProcessFn[T]
+}
+
 type WalkConfig[T any] struct {
 	ConfigData
-	Mapper MapFn[T]
+	GenConfigData[T]
 }
 
 func NewConfigData() *ConfigData {
@@ -31,10 +35,17 @@ func NewConfigData() *ConfigData {
 	}
 }
 
+func NewWalkConfig[T any]() *WalkConfig[T] {
+	return &WalkConfig[T]{
+		ConfigData:    *NewConfigData(),
+		GenConfigData: GenConfigData[T]{},
+	}
+}
+
 // Config is a function that mutates the current walk configuration
 type Config func(*ConfigData)
 
-func ConfigFilter(f Filter) func(*ConfigData) {
+func ConfigFilter(f FilterFn) func(*ConfigData) {
 	return func(config *ConfigData) {
 		if f == nil {
 			return
@@ -42,7 +53,7 @@ func ConfigFilter(f Filter) func(*ConfigData) {
 		if prev := config.Filter; prev == nil {
 			config.Filter = f
 		} else {
-			config.Filter = func(p path.RootedPath, ent os.DirEntry, err error) (FilterAction, error) {
+			config.Filter = func(p path.Path, ent os.DirEntry, err error) (FilterAction, error) {
 				if skip, err := prev(p, ent, err); skip == FilterAccept {
 					return f(p, ent, err)
 				} else {

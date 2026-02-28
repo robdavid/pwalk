@@ -14,6 +14,8 @@ var ErrSkip = errors.New("entry skipped")
 
 type Void struct{}
 
+var Nil Void = Void{}
+
 type DirEntry[T any] interface {
 	fs.DirEntry
 	GetMapped() T
@@ -63,7 +65,7 @@ func (d DirEntryDir[T]) WithChild(c *Dir[T]) DirEntry[T] {
 // Dir contains the results from reading a directory, including
 // the directory path, the entries read and any error encountered.
 type Dir[T any] struct {
-	Path    path.RootedPath
+	Path    path.Path
 	Entries []DirEntry[T]
 	Error   error
 }
@@ -84,16 +86,16 @@ const (
 	FilterSkipDir
 )
 
-type Filter func(path.RootedPath, os.DirEntry, error) (FilterAction, error)
-type MapFn[T any] func(path.RootedPath, os.DirEntry, error) (T, error)
+type PreProcessFn[T any] = func(path.Path, os.DirEntry, error) (T, FilterAction, error)
+type FilterFn = func(path.Path, os.DirEntry, error) (FilterAction, error)
 
 // Read reads the directory at p, and returns a pointer to a [Dir] object
-func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
+func Read[T any](config *WalkConfig[T], p path.Path) *Dir[T] {
 	ents, err := config.Filesystem.ReadDir(p)
-	filter := config.Filter
-	if filter != nil && err != nil {
+	preProcessor := config.PreProcessor
+	if preProcessor != nil && err != nil {
 		var action FilterAction
-		action, err = filter(p, NewAnyDirEntry(config.Filesystem, p), err)
+		_, action, err = preProcessor(p, NewAnyDirEntry(config.Filesystem, p), err)
 		switch action {
 		case FilterSkipDir:
 			return &Dir[T]{p, []DirEntry[T]{}, err}
@@ -103,21 +105,18 @@ func Read[T any](config *WalkConfig[T], p path.RootedPath) *Dir[T] {
 	}
 	dirs := make([]DirEntry[T], 0, len(ents))
 	for _, ent := range ents {
-		if filter != nil {
+		var mapped T
+		if preProcessor != nil {
 			var action FilterAction
-			action, err := filter(p.Append(ent.Name()), ent, nil)
+			var nerr error
+			mapped, action, nerr = preProcessor(p.Append(ent.Name()), ent, err)
+			err = errors.Join(err, nerr)
 			switch action {
 			case FilterSkipDir:
 				return &Dir[T]{p, []DirEntry[T]{}, err}
 			case FilterSkip:
 				continue
 			}
-		}
-		var mapped T
-		if config.Mapper != nil {
-			var nerr error
-			mapped, nerr = config.Mapper(p, ent, err)
-			err = errors.Join(err, nerr)
 		}
 		if ent.IsDir() {
 			dirs = append(dirs, DirEntryDir[T]{ent, nil, mapped})
@@ -141,11 +140,11 @@ func (d *Dir[T]) EntryIndex(name string) int {
 
 type RootDirEntry struct {
 	filesystem Filesystem
-	root       path.RootedPath
+	root       path.Path
 	info       fs.FileInfo
 }
 
-func NewRootDirEntry(fs Filesystem, root path.RootedPath) *RootDirEntry {
+func NewRootDirEntry(fs Filesystem, root path.Path) *RootDirEntry {
 	return &RootDirEntry{filesystem: fs, root: root}
 }
 
@@ -154,7 +153,7 @@ func (r *RootDirEntry) Name() string {
 }
 
 func (r *RootDirEntry) IsDir() bool {
-	return r.Type().IsDir()
+	return true
 }
 
 func (r *RootDirEntry) Info() (fs.FileInfo, error) {
@@ -189,7 +188,7 @@ type AnyDirEntry struct {
 	RootDirEntry
 }
 
-func NewAnyDirEntry(fs Filesystem, p path.RootedPath) *AnyDirEntry {
+func NewAnyDirEntry(fs Filesystem, p path.Path) *AnyDirEntry {
 	return &AnyDirEntry{RootDirEntry: RootDirEntry{filesystem: fs, root: p}}
 }
 
@@ -202,9 +201,9 @@ func (r *AnyDirEntry) Name() string {
 }
 
 // FilterDirSymLinks is a filter function that can be used to skip symbolic links to directories.
-// If the entry is a directory and a symbolic link, it will be skipped.
-func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (FilterAction, error) {
-	if ent.IsDir() {
+// If the entry is a directory and a symbolic link, it will be skipped, unless it is the root.
+func FilterDirSymLinks(p path.Path, ent os.DirEntry, errIn error) (FilterAction, error) {
+	if ent.IsDir() && !p.IsRoot() {
 		if info, err := ent.Info(); err == nil {
 			if info.Mode()&fs.ModeSymlink != 0 {
 				return FilterSkip, errIn
@@ -212,4 +211,17 @@ func FilterDirSymLinks(p path.RootedPath, ent os.DirEntry, errIn error) (FilterA
 		}
 	}
 	return FilterAccept, errIn
+}
+
+func ChainPreprocessors[T any](fns ...PreProcessFn[T]) PreProcessFn[T] {
+	return func(p path.Path, ent os.DirEntry, errIn error) (value T, action FilterAction, err error) {
+		err = errIn
+		for _, fn := range fns {
+			value, action, err = fn(p, ent, err)
+			if action != FilterAccept {
+				break
+			}
+		}
+		return
+	}
 }
